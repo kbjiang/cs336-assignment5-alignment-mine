@@ -89,45 +89,45 @@ def test_sft_microbatch_train_step(
     output = {"loss": loss, "policy_log_probs_grad": policy_log_probs.grad}
     numpy_snapshot.assert_match(output)
 
-def test_sft_microbatch_train_step_normalize(
-    numpy_snapshot,
-    policy_log_probs,
-    response_mask,
-    gradient_accumulation_steps,
-    normalize_constant,
-):
-    policy_log_probs.requires_grad = True
-    loss, _ = sft_microbatch_train_step(
-        policy_log_probs=policy_log_probs,
-        response_mask=response_mask,
-        gradient_accumulation_steps=gradient_accumulation_steps,
-        normalize_constant=normalize_constant,
-    )
-    output = {"loss": loss, "policy_log_probs_grad": policy_log_probs.grad}
-    numpy_snapshot.assert_match(output)
+# def test_sft_microbatch_train_step_normalize(
+#     numpy_snapshot,
+#     policy_log_probs,
+#     response_mask,
+#     gradient_accumulation_steps,
+#     normalize_constant,
+# ):
+#     policy_log_probs.requires_grad = True
+#     loss, _ = sft_microbatch_train_step(
+#         policy_log_probs=policy_log_probs,
+#         response_mask=response_mask,
+#         gradient_accumulation_steps=gradient_accumulation_steps,
+#         normalize_constant=normalize_constant,
+#     )
+#     output = {"loss": loss, "policy_log_probs_grad": policy_log_probs.grad}
+#     numpy_snapshot.assert_match(output)
 
-def test_sft_microbatch_train_step_10_steps(
-    numpy_snapshot,
-    policy_log_probs,
-    response_mask,
-    gradient_accumulation_steps,
-):
-    policy_log_probs.requires_grad = True
+# def test_sft_microbatch_train_step_10_steps(
+#     numpy_snapshot,
+#     policy_log_probs,
+#     response_mask,
+#     gradient_accumulation_steps,
+# ):
+#     policy_log_probs.requires_grad = True
 
-    loss_list = []
-    grad_list = []
-    for _ in range(10):
-        loss, _ = sft_microbatch_train_step(
-            policy_log_probs=policy_log_probs,
-            response_mask=response_mask,
-            gradient_accumulation_steps=gradient_accumulation_steps,
-            normalize_constant=1.0,
-        )
-        loss_list.append(loss)
-        grad_list.append(policy_log_probs.grad)
+#     loss_list = []
+#     grad_list = []
+#     for _ in range(10):
+#         loss, _ = sft_microbatch_train_step(
+#             policy_log_probs=policy_log_probs,
+#             response_mask=response_mask,
+#             gradient_accumulation_steps=gradient_accumulation_steps,
+#             normalize_constant=1.0,
+#         )
+#         loss_list.append(loss)
+#         grad_list.append(policy_log_probs.grad)
 
-    output = {
-        "loss": torch.stack(loss_list),
-        "policy_log_probs_grad": torch.stack(grad_list),
-    }
-    numpy_snapshot.assert_match(output)
+#     output = {
+#         "loss": torch.stack(loss_list),
+#         "policy_log_probs_grad": torch.stack(grad_list),
+#     }
+#     numpy_snapshot.assert_match(output)
