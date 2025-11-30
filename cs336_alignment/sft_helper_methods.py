@@ -27,7 +27,7 @@ def tokenize_prompt_and_output(
     result = {
         "input_ids": torch.tensor(tokens_padded)[:, :-1],
         "labels": torch.tensor(tokens_padded)[:, 1:],
-        "response_mask": torch.tensor(masks_padded)[:, 1:],
+        "response_masks": torch.tensor(masks_padded)[:, 1:],
     }
     return result
 
@@ -44,13 +44,12 @@ def get_response_log_probs(
     return_token_entropy: bool = False,
 ) -> dict[str, torch.Tensor]:
     # Move to same device as model
-    input_ids = input_ids.to(model.device)
+    device = model.device
+    input_ids = input_ids.to(device)
 
-    device_data = labels.device
-    
     with torch.no_grad():
         logits = model(input_ids).logits
-        log_probs = F.log_softmax(logits, dim=-1).to(device_data)
+        log_probs = F.log_softmax(logits, dim=-1).to(device)
 
         # Learn: advanced indexing; notice the `unsqueeze`
         batch_idx = torch.arange(labels.shape[0]).unsqueeze(1)
@@ -59,7 +58,7 @@ def get_response_log_probs(
 
         result = {"log_probs": log_probs}
         if return_token_entropy:
-            result["token_entropy"] = compute_entropy(logits.to(device_data))
+            result["token_entropy"] = compute_entropy(logits.to(device))
         return result
 
 def mask_normalize(
@@ -82,8 +81,8 @@ def sft_microbatch_train_step(
         normalize_constant,
         dim=None
     ) / gradient_accumulation_steps
-    # I am off by a factor of 2 in test
-    # not sure if there is a factor of batch_size...
+    # devided by batch_size to reproduce "reduction='mean'" as in PyTorch
+    # https://docs.pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
     batch_size = policy_log_probs.shape[0] 
     loss /= batch_size
 
