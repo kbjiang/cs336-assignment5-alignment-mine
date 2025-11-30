@@ -1,6 +1,7 @@
 import torch
 from transformers import PreTrainedTokenizer, PreTrainedModel
 import torch.nn.functional as F
+from contextlib import nullcontext
 
 def tokenize_prompt_and_output(
         prompt_strs: list[str],
@@ -42,12 +43,16 @@ def get_response_log_probs(
     input_ids: torch.Tensor,
     labels: torch.Tensor,
     return_token_entropy: bool = False,
+    inference_mode: bool = False,
 ) -> dict[str, torch.Tensor]:
     # Move to same device as model
     device = model.device
     input_ids = input_ids.to(device)
 
-    with torch.no_grad():
+    # nullcontext to enable gradient update
+    context = torch.inference_mode() if inference_mode else nullcontext()
+    
+    with context:
         logits = model(input_ids).logits
         log_probs = F.log_softmax(logits, dim=-1).to(device)
 

@@ -122,7 +122,9 @@ def run_get_response_log_probs(
     """
     # raise NotImplementedError
     from cs336_alignment.sft_helper_methods import get_response_log_probs
-    return get_response_log_probs(model, input_ids, labels, return_token_entropy)
+    return get_response_log_probs(
+        model, input_ids, labels, return_token_entropy, inference_mode=True
+    )
 
 
 def run_compute_naive_policy_gradient_loss(

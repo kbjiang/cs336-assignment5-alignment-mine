@@ -111,6 +111,7 @@ def sft_train(cfg, model, vllm_model, optimizer, tokenizer, df_train, df_eval):
         include_stop_str_in_output=True,
     )
 
+    loss_accumulated = 0.
     for step in tqdm(range(cfg.train_steps), total=cfg.train_steps):
         batch = df_train.sample(cfg.train_batch_size)
         tokenized_dict = tokenize_prompt_and_output(
@@ -126,22 +127,24 @@ def sft_train(cfg, model, vllm_model, optimizer, tokenizer, df_train, df_eval):
             model, input_ids, labels, return_token_entropy=False
         )["log_probs"]
 
-        # requires gradient
-        policy_log_probs.requires_grad_(True)
-
         # loss.backward() is inside `sft_microbatch_train_step`
+        # `normalize_constant` removes the impact of different seq-lens btw batches
         loss, metadata = sft_microbatch_train_step(
-            policy_log_probs, response_masks, cfg.gradient_accumulation_steps
+            policy_log_probs, response_masks, cfg.gradient_accumulation_steps,
+            normalize_constant=torch.sum(response_masks).item()
         )
-        # log loss and metadata...
+        loss_accumulated += loss.item()
+        # TODO: log loss and metadata...
 
         if (step + 1) % cfg.gradient_accumulation_steps == 0:
             optimizer.step()
             optimizer.zero_grad()
-            print(f"Loss {loss.item()}")
+            print(f"Loss {loss_accumulated}")
+            loss_accumulated = 0.
 
-        if (step + 1) % cfg.eval_interval == 0:
-            load_policy_into_vllm_instance(model, vllm_model)
+        if step == 0 or (step + 1) % cfg.eval_interval == 0:
+            if step != 0:
+                load_policy_into_vllm_instance(model, vllm_model)
             
             prompts = get_prompts(
                 prompt_r1_zero, df_eval.problem.tolist())
@@ -150,12 +153,15 @@ def sft_train(cfg, model, vllm_model, optimizer, tokenizer, df_train, df_eval):
 
             accuracy = sum([eval["reward"] for eval in evals]) / len(evals)
             accuracy_format = sum([eval["format_reward"] for eval in evals]) / len(evals)
+            if step == 0:
+                print("Initial eval.")
             print(f"Step {step}: accuracy {accuracy}")
             print(f"Step {step}: format {accuracy_format}")
 
     # save the model weights
     model.save_pretrained(save_directory=cfg.save_dir)
     tokenizer.save_pretrained(save_directory=cfg.save_dir)
+    print(f"SFT model saved in {cfg.save_dir}")
 
 
 if __name__ == "__main__":
@@ -176,6 +182,7 @@ if __name__ == "__main__":
     df_train = df_train.drop_duplicates().reset_index(drop=True)
     print(f"Num of train samples after deduplication: {df_train.shape}")
 
-    df_eval = pd.read_json(cfg.file_eval, lines=True)[:100]
+    df_eval = pd.read_json(cfg.file_eval, lines=True)
 
+    # train
     sft_train(cfg, model, vllm_model, optimizer, tokenizer, df_train, df_eval)
