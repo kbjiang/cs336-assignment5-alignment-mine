@@ -186,11 +186,15 @@ if __name__ == "__main__":
     df_train = df_train.drop_duplicates().reset_index(drop=True)
     print(f"Num of train samples after deduplication: {df_train.shape}")
 
-    if args.num_train_example:
-        df_train = df_train.sample(args.num_train_examples)
-        print(f"Num of train samples after selection: {args.num_train_examples}")al = pd.read_json(cfg.file_eval, lines=True)
+    if cfg.num_train_examples:
+        df_train = df_train.sample(cfg.num_train_examples)
+        print(f"Num of train samples after selection: {cfg.num_train_examples}")al = pd.read_json(cfg.file_eval, lines=True)
+        log_file = f"sft_log_{cfg.num_train_examples}.jsonl"
+    else:
+        log_file = f"sft_log_full.jsonl"
+
+    df_eval = pd.read_json(cfg.file_eval, lines=True)
 
     # train
-    sft_train(cfg, model,
-         vllm_model, optimizer, tokenizer, df_train, df_eval), ""sft_log.fjsonl{args.num_train_example}_
+    sft_train(cfg, model, vllm_model, optimizer, tokenizer, df_train, df_eval, log_file)
         

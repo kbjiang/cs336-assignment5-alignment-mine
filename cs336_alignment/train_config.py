@@ -6,6 +6,7 @@ class SFTTrainingConfig:
     file_prompt_r1_zero = "/home/azureuser/localfiles/cs336-assignment5-alignment-mine/cs336_alignment/prompts/r1_zero.prompt"
     file_train = "/home/azureuser/localfiles/cs336-assignment5-alignment-mine/data/sft.jsonl"
     file_eval = "/home/azureuser/localfiles/cs336-assignment5-alignment-mine/data/validation.jsonl"
+    num_train_examples: int | None = 128
     seed: int = 0
     dtype: str = "bfloat16"
     train_batch_size: int = 16
