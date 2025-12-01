@@ -13,6 +13,7 @@ from pathlib import Path
 import pandas as pd
 from tqdm import tqdm
 from sft_helper_methods import *
+import wandb
 
 
 def init_vllm(model_id: str, device: str, seed: int, gpu_memory_utilization: float=0.85):
@@ -73,7 +74,7 @@ def evaluate_vllm(
                 }
                 f.write(json.dumps(result) + '\n')
 
-    return evals, solutions_generated
+    return evals, solutions, solutions_generated
 
 def get_optimizer(cfg, model):
     # Set up the AdamW optimizer.
@@ -134,25 +135,25 @@ def sft_train(cfg, model, vllm_model, optimizer, tokenizer, df_train, df_eval, l
             normalize_constant=torch.sum(response_masks).item()
         )
         loss_accumulated += loss.item()
-        # TODO: log loss and metadata...
 
         if (step + 1) % cfg.gradient_accumulation_steps == 0:
+            if cfg.max_grad_norm is not None:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.max_grad_norm)
             optimizer.step()
             optimizer.zero_grad()
-            print(f"Loss {loss_accumulated}")
+            # print(f"Loss {loss_accumulated}")
+            wandb.log({"train/loss": loss_accumulated, "train_step": step + 1})
             loss_accumulated = 0.
 
         if step == 0 or (step + 1) % cfg.eval_interval == 0:
-            if step != 0:
-                load_policy_into_vllm_instance(model, vllm_model)
+            load_policy_into_vllm_instance(model, vllm_model)
             
             prompts = get_prompts(
                 prompt_r1_zero, df_eval.problem.tolist())
             evals, solutions, solutions_generated = evaluate_vllm(
                 vllm_model, sampling_params, prompts, df_eval.answer.tolist(), r1_zero_reward_fn)
-
          
-
+            # logging
             log = log_generations(
                 model, tokenizer, step, prompts, solutions_generated, solutions, evals
             )
@@ -161,6 +162,13 @@ def sft_train(cfg, model, vllm_model, optimizer, tokenizer, df_train, df_eval, l
 
             with open(log_file, "w" if step==0 else "a") as f:
                 f.write(json.dumps(log) + "\n")  
+            
+            wandb.log({
+                "eval/reward": log['reward'], 
+                "eval/reward_format": log['reward_format'], 
+                "eval/reward_answer": log['reward_answer'], 
+                "eval_step": step + 1
+            })
 
     # save the model weights
     model.save_pretrained(save_directory=cfg.save_dir)
@@ -171,6 +179,20 @@ def sft_train(cfg, model, vllm_model, optimizer, tokenizer, df_train, df_eval, l
 if __name__ == "__main__":
     cfg = SFTTrainingConfig()
 
+    # Initialize wandb
+    wandb.init(
+        project = cfg.wandb_project,
+        name = f"sft_n_train_{cfg.num_train_examples if cfg.num_train_examples else 'full'}"
+        entity=cfg.wandb_entity,
+        config=vars(cfg)
+    )
+    # Setup wandb metrics
+    wandb.define_metric("train_step")
+    wandb.define_metric("eval_step")
+    wandb.define_metric("train/*", step_metric="train_step")
+    wandb.define_metric("eval/*", step_metric="eval_step")
+
+    # load model, tokenizer, optimizer
     vllm_model = init_vllm(cfg.model_id, device=cfg.device_eval, seed=42)
     model = AutoModelForCausalLM.from_pretrained(
         cfg.model_id,
@@ -181,6 +203,7 @@ if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained(cfg.model_id)
     optimizer = get_optimizer(cfg, model)
 
+    # load data
     df_train = pd.read_json(cfg.file_train, lines=True)
     print(f"Num of train samples: {df_train.shape}")
     df_train = df_train.drop_duplicates().reset_index(drop=True)
@@ -188,7 +211,7 @@ if __name__ == "__main__":
 
     if cfg.num_train_examples:
         df_train = df_train.sample(cfg.num_train_examples)
-        print(f"Num of train samples after selection: {cfg.num_train_examples}")al = pd.read_json(cfg.file_eval, lines=True)
+        print(f"Num of train samples after selection: {cfg.num_train_examples}")
         log_file = f"sft_log_{cfg.num_train_examples}.jsonl"
     else:
         log_file = f"sft_log_full.jsonl"

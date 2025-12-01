@@ -120,8 +120,8 @@ def log_generations(
     ids_format = df[df.format_reward == 1].index.tolist()
     ids_answer = df[df.answer_reward == 1].index.tolist()
     ids_total = df[df.reward == 1].index.tolist()
-    log["format_reward"] = round(len(ids_format) / len(df), 3)
-    log["answer_reward"] = round(len(ids_answer) / len(df), 3)
+    log["reward_format"] = round(len(ids_format) / len(df), 3)
+    log["reward_answer"] = round(len(ids_answer) / len(df), 3)
     log["reward"] = round(len(ids_total) / len(df), 3)
 
     res_len = sum([len(word_tokenize(res)) for res in responses])

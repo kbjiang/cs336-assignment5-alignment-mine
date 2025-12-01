@@ -6,7 +6,6 @@ class SFTTrainingConfig:
     file_prompt_r1_zero = "/home/azureuser/localfiles/cs336-assignment5-alignment-mine/cs336_alignment/prompts/r1_zero.prompt"
     file_train = "/home/azureuser/localfiles/cs336-assignment5-alignment-mine/data/sft.jsonl"
     file_eval = "/home/azureuser/localfiles/cs336-assignment5-alignment-mine/data/validation.jsonl"
-    num_train_examples: int | None = 128
     seed: int = 0
     dtype: str = "bfloat16"
     train_batch_size: int = 16
@@ -25,8 +24,9 @@ class SFTTrainingConfig:
     adam_beta1: float = 0.9
     adam_beta2: float = 0.98
     adam_eps: float = 1e-9
-    wandb_project: str | None = None
-    wandb_entity: str | None = None
+    wandb_project: str | None = "cs336_assgn5_sft"
+    wandb_entity: str | None = "kebeijiang"
     log_interval: int = 20
     save_checkpoints: bool = False
     save_dir: str = "sft_model"
+    num_train_examples: int | None = 128
