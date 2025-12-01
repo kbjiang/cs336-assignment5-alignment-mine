@@ -29,4 +29,4 @@ class SFTTrainingConfig:
     log_interval: int = 20
     save_checkpoints: bool = False
     save_dir: str = "sft_model"
-    num_train_examples: int | None = 128
+    num_train_examples: int | None = None

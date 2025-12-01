@@ -182,7 +182,8 @@ if __name__ == "__main__":
     # Initialize wandb
     wandb.init(
         project = cfg.wandb_project,
-        name = f"sft_n_train_{cfg.num_train_examples if cfg.num_train_examples else 'full'}"
+        name = f"sft_n_train_{cfg.num_train_examples if cfg.num_train_examples else 'full'}",
+        # name = "sft_n_train_filtered",
         entity=cfg.wandb_entity,
         config=vars(cfg)
     )
@@ -209,12 +210,24 @@ if __name__ == "__main__":
     df_train = df_train.drop_duplicates().reset_index(drop=True)
     print(f"Num of train samples after deduplication: {df_train.shape}")
 
+
     if cfg.num_train_examples:
         df_train = df_train.sample(cfg.num_train_examples)
         print(f"Num of train samples after selection: {cfg.num_train_examples}")
         log_file = f"sft_log_{cfg.num_train_examples}.jsonl"
     else:
         log_file = f"sft_log_full.jsonl"
+
+    # filtered_sft_ids = [
+    #     5, 13, 17, 26, 31, 37, 63, 74, 78, 96, 129, 136, 146, 148, 158, 167, 177, 181, 238, 249, 252, 264, 265, 274, 288, 313, 317, 337, 339, 361,
+    #     385, 389, 395, 396, 434, 445, 449, 468, 469, 514, 521, 539, 576, 610, 618, 625, 629, 630, 637, 638, 643, 650, 675, 689, 742, 753, 761, 799,
+    #     812, 833, 860, 865, 876, 881, 886, 894, 896, 947, 956, 987, 998, 1002, 1006, 1016, 1018, 1033, 1040, 1052, 1076, 1091, 1108, 1114, 1120,
+    #     1147, 1156, 1168, 1185, 1198, 1201, 1233, 1251, 1276, 1282, 1294, 1318, 1335, 1365, 1366, 1414, 1416, 1419, 1462, 1484, 1487, 1518, 1534,
+    #     1541, 1543, 1556, 1561, 1587, 1598, 1604, 1609, 1610, 1613, 1623, 1629, 1647, 1660, 1671, 1701, 1705
+    # ]
+    # df_train = df_train.iloc[filtered_sft_ids]
+    # print(f"Num of train samples after filtering: {df_train.shape}")
+    # log_file = f"sft_log_filtered.jsonl"
 
     df_eval = pd.read_json(cfg.file_eval, lines=True)
 
