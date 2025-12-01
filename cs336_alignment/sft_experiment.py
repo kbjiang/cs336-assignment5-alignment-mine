@@ -98,7 +98,7 @@ def get_optimizer(cfg, model):
     )
     return optimizer
 
-def sft_train(cfg, model, vllm_model, optimizer, tokenizer, df_train, df_eval):
+def sft_train(cfg, model, vllm_model, optimizer, tokenizer, df_train, df_eval, log_file):
     assert cfg.train_steps % cfg.gradient_accumulation_steps == 0
     assert cfg.eval_interval % cfg.gradient_accumulation_steps == 0
 
@@ -148,15 +148,19 @@ def sft_train(cfg, model, vllm_model, optimizer, tokenizer, df_train, df_eval):
             
             prompts = get_prompts(
                 prompt_r1_zero, df_eval.problem.tolist())
-            evals, _ = evaluate_vllm(
+            evals, solutions, solutions_generated = evaluate_vllm(
                 vllm_model, sampling_params, prompts, df_eval.answer.tolist(), r1_zero_reward_fn)
 
-            accuracy = sum([eval["reward"] for eval in evals]) / len(evals)
-            accuracy_format = sum([eval["format_reward"] for eval in evals]) / len(evals)
-            if step == 0:
-                print("Initial eval.")
-            print(f"Step {step}: accuracy {accuracy}")
-            print(f"Step {step}: format {accuracy_format}")
+         
+
+            log = log_generations(
+                model, tokenizer, step, prompts, solutions_generated, solutions, evals
+            )
+
+            print({k:v for k, v in log.items() if k != "samples"})
+
+            with open(log_file, "w" if step==0 else "a") as f:
+                f.write(json.dumps(log) + "\n")  
 
     # save the model weights
     model.save_pretrained(save_directory=cfg.save_dir)
@@ -182,7 +186,11 @@ if __name__ == "__main__":
     df_train = df_train.drop_duplicates().reset_index(drop=True)
     print(f"Num of train samples after deduplication: {df_train.shape}")
 
-    df_eval = pd.read_json(cfg.file_eval, lines=True)
+    if args.num_train_example:
+        df_train = df_train.sample(args.num_train_examples)
+        print(f"Num of train samples after selection: {args.num_train_examples}")al = pd.read_json(cfg.file_eval, lines=True)
 
     # train
-    sft_train(cfg, model, vllm_model, optimizer, tokenizer, df_train, df_eval)
+    sft_train(cfg, model,
+         vllm_model, optimizer, tokenizer, df_train, df_eval), ""sft_log.fjsonl{args.num_train_example}_
+        

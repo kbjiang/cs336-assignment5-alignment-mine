@@ -2,6 +2,10 @@ import torch
 from transformers import PreTrainedTokenizer, PreTrainedModel
 import torch.nn.functional as F
 from contextlib import nullcontext
+import pandas as pd
+import random
+from nltk.tokenize import word_tokenize
+
 
 def tokenize_prompt_and_output(
         prompt_strs: list[str],
@@ -33,6 +37,7 @@ def tokenize_prompt_and_output(
     return result
 
 def compute_entropy(logits: torch.Tensor) -> torch.Tensor:
+    """Per-token entropy"""
     logsumexp = torch.logsumexp(logits, dim=-1, keepdim=True)
     log_probs = logits - logsumexp
     probs = torch.exp(log_probs)
@@ -99,3 +104,58 @@ def sft_microbatch_train_step(
     } 
 
     return loss, metadata
+
+def log_generations(
+    model: PreTrainedModel,
+    tokenizer: PreTrainedTokenizer,
+    step: int,
+    prompts: list[str],
+    responses: list[str],
+    ground_truths: list[str],
+    evals: list[dict],
+):
+    log = {"step": step}
+    # evaluation on full dataset
+    df = pd.DataFrame(evals)
+    ids_format = df[df.format_reward == 1].index.tolist()
+    ids_answer = df[df.answer_reward == 1].index.tolist()
+    ids_total = df[df.reward == 1].index.tolist()
+    log["format_reward"] = round(len(ids_format) / len(df), 3)
+    log["answer_reward"] = round(len(ids_answer) / len(df), 3)
+    log["reward"] = round(len(ids_total) / len(df), 3)
+
+    res_len = sum([len(word_tokenize(res)) for res in responses])
+    res_len_correct = sum([len(word_tokenize(responses[i])) for i in ids_total])
+    avg_res_len_correct = res_len_correct / len(ids_total)
+    avg_res_len_incorrect = (res_len - res_len_correct) / (len(responses) - len(ids_total))
+    log["average_response_length"] = round(res_len / len(responses), 3)
+    log["average_response_length_correct"] = round(avg_res_len_correct, 3)
+    log["average_response_length_incorrect"] = round(avg_res_len_incorrect, 3)
+
+    # small sample for token entropy
+    sample_logs = []
+    # sample_ids = random.sample(range(len(prompts)), 2)
+    sample_ids = [863, 2714]
+    samples_tokenized = tokenize_prompt_and_output(
+        [prompts[i] for i in sample_ids],
+        [responses[i] for i in sample_ids],
+        tokenizer,
+    )
+    input_ids = samples_tokenized["input_ids"].to(model.device)
+    with torch.inference_mode():
+        logits = model(input_ids).logits
+        entropies = compute_entropy(logits)
+    
+    for i, id in enumerate(sorted(sample_ids)):
+        sample_log = {
+            "id": id, 
+            "prompt": prompts[id],
+            "ground_truth": ground_truths[id],
+            "response": responses[id],
+            "response_average_token_entropy": torch.mean(entropies, -1)[i].item(),
+            "eval": evals[id]
+        }
+        sample_logs.append(sample_log)
+    
+    log["samples"] = sample_logs
+    return log
