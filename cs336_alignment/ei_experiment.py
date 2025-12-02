@@ -157,11 +157,11 @@ def ei_train(cfg, model, vllm_model, optimizer, tokenizer, df_train, df_eval, lo
     loss_accumulated = 0.
     step = 0  # train step
     for ei_step in tqdm(range(cfg.n_ei_steps), total=cfg.n_ei_steps):
-        # Update learning rate based on ei_step (linear schedule from 5e-5 to 1e-5)
-        lr = 5e-5 - (5e-5 - 1e-5) * (ei_step / 4)
+        # Update learning rate based on ei_step (linear schedule from cfg.lr to cfg.lr_fin)
+        lr = cfg.lr - (cfg.lr - cfg.lr_fin) * (ei_step / (cfg.n_ei_steps - 1))
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
-        print(f"EI step {ei_step}, learning rate: {lr}")
+        print(f">>> EI step {ei_step}, learning rate: {lr}")
         wandb.log({"train/lr": lr, "train_step": step})
         
         batch = df_train.sample(cfg.ei_batch_size)
@@ -173,13 +173,12 @@ def ei_train(cfg, model, vllm_model, optimizer, tokenizer, df_train, df_eval, lo
             batch.answer.tolist(),
             r1_zero_reward_fn, 
         )
-        ei_samples = pd.DataFrame(ei_samples).sample(frac=1)
-        print(f"Size of EI dataframe: {ei_samples.shape}")
-        # print(ei_samples.iloc[0])
-        # TODO: log ei_samples length
+        ei_samples = pd.DataFrame(ei_samples)
+        print(f">>> EI step {ei_step}, size of EI samples: {len(ei_samples)}")
+        wandb.log({"train/ei_sample": len(ei_samples), "train_step": step})
 
         for ei_epoch in range(cfg.n_ei_epochs):
-            # single epoch
+            ei_samples = ei_samples.sample(frac=1)
             for i in range(0, len(ei_samples), cfg.train_batch_size):
                 batch = ei_samples.iloc[i: i+cfg.train_batch_size]
 
@@ -273,7 +272,7 @@ if __name__ == "__main__":
     # Initialize wandb
     wandb.init(
         project = cfg.wandb_project,
-        name = f"ei_bs{cfg.ei_batch_size}_G{cfg.G}_ep{cfg.n_ei_epochs}",
+        name = f"ei_bs{cfg.ei_batch_size}_G{cfg.G}_ep{cfg.n_ei_epochs}_gaccum{cfg.gradient_accumulation_steps}",
         entity=cfg.wandb_entity,
         config=vars(cfg)
     )
@@ -303,6 +302,6 @@ if __name__ == "__main__":
     df_eval = pd.read_json(cfg.file_eval, lines=True)
 
     # train
-    log_file = f"ei_log_bs{cfg.ei_batch_size}_G{cfg.G}_ep{cfg.n_ei_epochs}.jsonl"
+    log_file = f"ei_log_bs{cfg.ei_batch_size}_G{cfg.G}_ep{cfg.n_ei_epochs}_gaccum{cfg.gradient_accumulation_steps}.jsonl"
     ei_train(cfg, model, vllm_model, optimizer, tokenizer, df_train, df_eval, log_file)
         
