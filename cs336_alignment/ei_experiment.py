@@ -164,13 +164,13 @@ def ei_train(cfg, model, vllm_model, optimizer, tokenizer, df_train, df_eval, lo
         print(f">>> EI step {ei_step}, learning rate: {lr}")
         wandb.log({"train/lr": lr, "train_step": step})
         
-        batch = df_train.sample(cfg.ei_batch_size)
+        ei_batch = df_train.sample(cfg.ei_batch_size)
 
         # get expert iteration samples
         ei_samples = sample_expert_outputs(
             vllm_model, sampling_params_ei, cfg.file_prompt_r1_zero, 
-            batch.problem.tolist(),
-            batch.answer.tolist(),
+            ei_batch.problem.tolist(),
+            ei_batch.answer.tolist(),
             r1_zero_reward_fn, 
         )
         ei_samples = pd.DataFrame(ei_samples)
