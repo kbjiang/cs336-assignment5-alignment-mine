@@ -20,3 +20,11 @@ def compute_group_normalized_rewards(
     if normalize_by_std:
         advantages = advantages / (raw_rewards.std(dim=-1, keepdim=True) + advantage_eps)
     return advantages.flatten(), raw_rewards.flatten(), None
+
+def compute_naive_policy_gradient_loss(
+    raw_rewards_or_advantages: torch.Tensor,
+    policy_log_probs: torch.Tensor,
+) -> torch.Tensor:  
+    """advantage is on rollout level, therefore the same for every token in same rollout"""
+    # batch_sz, seq_len = policy_log_probs.shape
+    return -raw_rewards_or_advantages * policy_log_probs
