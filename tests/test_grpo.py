@@ -53,6 +53,10 @@ def test_compute_group_normalized_rewards_no_normalize_by_std(
         "normalized_rewards": normalized_rewards,
         "raw_rewards": raw_rewards,
     }
+    print(reward_fn)
+    print(rollout_responses)
+    print(repeated_ground_truths)
+    print(group_size)
     numpy_snapshot.assert_match(output)
 
 
