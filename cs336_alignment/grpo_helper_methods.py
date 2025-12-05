@@ -43,9 +43,7 @@ def compute_grpo_clip_loss(
 
     # value mismatch when clipping happened
     clipped = min_lhs!=min_rhs
-    metadata = {
-        "clipped": clipped
-    }
+    metadata = {"clipped": clipped}
 
     return loss, metadata
 

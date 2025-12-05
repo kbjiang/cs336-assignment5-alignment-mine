@@ -53,17 +53,16 @@ class GRPOTrainingConfig:
     group_size: int = 8
     epochs_per_rollout_batch: int = 1  # on-policy
     train_batch_size: int = 256  # on-policy
-    gradient_accumulation_steps: int = 128  # microbatch size is 2, will fit on H100
+    gradient_accumulation_steps: int = 64  # microbatch size is 2, will fit on H100
     loss_type: Literal[
         "no_baseline", "reinforce_with_baseline", "grpo_clip",
-    ] = "grpo_clip"
-    loss_type_id: Literal[1, 2, 3] = 3
+    ] = "reinforce_with_baseline"
     use_std_normalization: bool = True
     weight_decay: float = 0.0
     adam_beta1: float = 0.9
     adam_beta2: float = 0.95
     adam_eps: float = 1e-8
-    eval_interval: int = 16
+    eval_interval: int = 64
     eval_sample_size: int = 1024
     save_dir: str = "grpo_model"
     seed: int = 0

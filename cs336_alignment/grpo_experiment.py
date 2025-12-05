@@ -192,7 +192,7 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
             repeated_ground_truths=rollout_batch.ground_truth.tolist(),
             group_size=cfg.group_size,
             advantage_eps=cfg.advantage_eps,
-            normalize_by_std=True,
+            normalize_by_std=cfg.use_std_normalization,
         )
         assert advantages.shape[0] == cfg.rollout_batch_size, "Wrong advantages size"
         assert raw_rewards.shape[0] == cfg.rollout_batch_size, "Wrong raw_rewards size"
@@ -212,8 +212,8 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
         # Compute in chunks to avoid OOM
         if cfg.loss_type == "grpo_clip":
             old_log_probs_chunks = []
-            chunk_size = 16  # reasonable batch size for inference
-            with torch.no_grad():
+            chunk_size = 64  # reasonable batch size for inference
+            with torch.inference_mode():
                 for i in range(0, len(input_ids), chunk_size):
                     chunk_input_ids = input_ids[i:i+chunk_size].to(cfg.device_train)
                     chunk_labels = labels[i:i+chunk_size].to(cfg.device_train)
@@ -227,7 +227,7 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
 
         # 10. train
         for _ in range(cfg.epochs_per_rollout_batch):
-            # TODO: shuffle the rollout batch
+            # TODO: shuffle the rollout batch?
             # rollout_batch = rollout_batch.sample(frac=1)
             for step in range(n_microbatches_per_rollout_batch):
                 micro_input_ids = input_ids[
@@ -287,7 +287,7 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
                     loss_accumulated = 0.
 
                 # do eval regularly
-                if step == 0 or (step + 1) % cfg.eval_interval == 0:
+                if micro_step == 0 or (step + 1) % cfg.eval_interval == 0:
                     load_policy_into_vllm_instance(policy, old_policy)
                     
                     prompts = get_prompts(
@@ -324,11 +324,12 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
 if __name__ == "__main__":
     cfg = GRPOTrainingConfig()
 
+    LOSS_TYPE_IDS = {"no_baseline": 1, "reinforce_with_baseline": 2, "grpo_clip": 3}
     # Initialize wandb
     wandb.init(
         project = cfg.wandb_project,
         name = (
-            f"grpo_log_loss{cfg.loss_type_id}_ro{cfg.rollout_batch_size}_G{cfg.group_size}"
+            f"grpo_log_loss{LOSS_TYPE_IDS[cfg.loss_type]}_ro{cfg.rollout_batch_size}_G{cfg.group_size}"
             f"_ep{cfg.epochs_per_rollout_batch}_gaccum{cfg.gradient_accumulation_steps}.jsonl"
         ),
         entity=cfg.wandb_entity,
@@ -361,7 +362,7 @@ if __name__ == "__main__":
 
     # train
     log_file = (
-        f"grpo_log_loss{cfg.loss_type_id}_ro{cfg.rollout_batch_size}_G{cfg.group_size}"
+        f"grpo_log_loss{LOSS_TYPE_IDS[cfg.loss_type]}_ro{cfg.rollout_batch_size}_G{cfg.group_size}"
         f"_ep{cfg.epochs_per_rollout_batch}_gaccum{cfg.gradient_accumulation_steps}.jsonl"
     )
     grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_eval, log_file)
