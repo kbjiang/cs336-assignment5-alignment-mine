@@ -100,8 +100,10 @@ def grpo_microbatch_train_step(
         old_log_probs,
         cliprange
     )
-    batch_size = policy_log_probs.shape[0]
-    # `/batch_size` to match `reduction=mean`
+    # batch_size = policy_log_probs.shape[0]
+
+    # no `/batch_size` to match `reduction=sum`
+    # this is different from sft, otherwise the pytest won't pass...
     loss = masked_mean(loss, response_mask) / gradient_accumulation_steps
 
     # backward called
