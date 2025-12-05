@@ -56,19 +56,22 @@ class GRPOTrainingConfig:
     gradient_accumulation_steps: int = 128  # microbatch size is 2, will fit on H100
     loss_type: Literal[
         "no_baseline", "reinforce_with_baseline", "grpo_clip",
-    ] = "reinforce_with_baseline"
+    ] = "grpo_clip"
+    loss_type_id: Literal[1, 2, 3] = 3
     use_std_normalization: bool = True
     weight_decay: float = 0.0
     adam_beta1: float = 0.9
     adam_beta2: float = 0.95
     adam_eps: float = 1e-8
+    eval_interval: int = 16
+    eval_sample_size: int = 1024
+    save_dir: str = "grpo_model"
     seed: int = 0
     dtype: str = "bfloat16"
     eval_batch_size: int = 8
     train_steps: int = 800
     compile: bool = True
     # eval_iterations: int = 100
-    eval_interval: int = 20
     max_grad_norm: float | None = 1.0
     device_train: str = "cuda:0"
     device_eval: str = "cuda:1"
@@ -77,5 +80,3 @@ class GRPOTrainingConfig:
     wandb_entity: str | None = "kebeijiang"
     log_interval: int = 20
     save_checkpoints: bool = False
-    save_dir: str = "grpo_model"
-    num_train_examples: int | None = None

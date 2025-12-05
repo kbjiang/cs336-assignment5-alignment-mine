@@ -134,8 +134,8 @@ def log_generations(
 
     # small sample for token entropy
     sample_logs = []
-    # sample_ids = random.sample(range(len(prompts)), 2)
-    sample_ids = [863, 2714]
+    sample_ids = random.sample(range(len(prompts)), 2)
+    # sample_ids = [863, 2714]
     samples_tokenized = tokenize_prompt_and_output(
         [prompts[i] for i in sample_ids],
         [responses[i] for i in sample_ids],
