@@ -184,7 +184,11 @@ def run_compute_grpo_clip_loss(
             dict[str, torch.Tensor]: metadata for the GRPO-Clip loss 
                 (used to compute clip fraction).
     """
-    raise NotImplementedError
+    # raise NotImplementedError
+    from cs336_alignment.grpo_helper_methods import compute_grpo_clip_loss
+    return compute_grpo_clip_loss(
+        advantages, policy_log_probs, old_log_probs, cliprange
+    )
 
 
 def run_compute_policy_gradient_loss(
@@ -198,7 +202,16 @@ def run_compute_policy_gradient_loss(
     """
     Wrapper that delegates to the appropriate policy gradient loss function above.
     """
-    raise NotImplementedError
+    # raise NotImplementedError
+    from cs336_alignment.grpo_helper_methods import compute_policy_gradient_loss
+    return compute_policy_gradient_loss(
+        policy_log_probs, 
+        loss_type,
+        raw_rewards,
+        advantages,
+        old_log_probs,
+        cliprange,
+    )
 
 
 def run_masked_mean(tensor: torch.Tensor, mask: torch.Tensor, dim: int | None = None) -> torch.Tensor:
@@ -217,7 +230,9 @@ def run_masked_mean(tensor: torch.Tensor, mask: torch.Tensor, dim: int | None = 
         torch.Tensor, the mean of the tensor along the specified
             dimension, considering only the elements with mask value 1.
     """
-    raise NotImplementedError
+    # raise NotImplementedError
+    from cs336_alignment.grpo_helper_methods import masked_mean
+    return masked_mean(tensor, mask, dim)
 
 def run_sft_microbatch_train_step(
     policy_log_probs: torch.Tensor,
@@ -273,7 +288,12 @@ def run_grpo_microbatch_train_step(
         tuple[torch.Tensor, dict[str, torch.Tensor]]: 
             the policy gradient loss and its metadata.
     """
-    raise NotImplementedError
+    # raise NotImplementedError
+    from cs336_alignment.grpo_helper_methods import grpo_microbatch_train_step
+    return grpo_microbatch_train_step(
+        policy_log_probs, response_mask, gradient_accumulation_steps, 
+        loss_type, raw_rewards, advantages, old_log_probs, cliprange
+    )
 
 
 def run_masked_normalize(
