@@ -20,7 +20,7 @@ def compute_group_normalized_rewards(
 
     if normalize_by_std:
         advantages = advantages / (raw_rewards.std(dim=-1, keepdim=True) + advantage_eps)
-    return advantages.flatten(), raw_rewards.flatten(), None
+    return advantages.flatten(), raw_rewards.flatten(), {}
 
 def compute_naive_policy_gradient_loss(
     raw_rewards_or_advantages: torch.Tensor,
