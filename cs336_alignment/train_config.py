@@ -63,7 +63,7 @@ class GRPOTrainingConfig:
     adam_beta2: float = 0.95
     adam_eps: float = 1e-8
     eval_interval: int = 64
-    eval_sample_size: int = 1024
+    eval_sample_frac: float = 0.5
     save_dir: str = "grpo_model"
     seed: int = 0
     dtype: str = "bfloat16"

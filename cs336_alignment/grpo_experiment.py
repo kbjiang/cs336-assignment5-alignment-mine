@@ -163,11 +163,14 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
     loss_accumulated = 0.
     micro_step = 0
     for grpo_step in tqdm(range(cfg.n_grpo_steps), total=cfg.n_grpo_steps):
+        # different subset of df_eval for each step
+        df_eval_ = df_eval.sample(cfg.eval_sample_frac)
+
         # Update learning rate based on grpo_step (linear schedule from cfg.lr to cfg.lr_fin)
         lr = cfg.lr - (cfg.lr - cfg.lr_fin) * (grpo_step / (cfg.n_grpo_steps - 1))
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
-        wandb.log({"train/lr": lr, "train_step": grpo_step})
+        wandb.log({"train/lr": lr, "train_step": micro_step})
 
         # 3. Sample a batch of questions        
         rollout_prompts = df_train.sample(n_prompts_per_rollout_batch)
@@ -289,9 +292,10 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
                     load_policy_into_vllm_instance(policy, old_policy)
                     
                     prompts = get_prompts(
-                        prompt_r1_zero, df_eval.problem.tolist())
+                        prompt_r1_zero, df_eval_.problem.tolist())
                     evals, solutions, solutions_generated = evaluate_vllm(
-                        old_policy, sampling_params_eval, prompts, df_eval.answer.tolist(), r1_zero_reward_fn
+                        old_policy, sampling_params_eval, prompts,
+                        df_eval_.answer.tolist(), r1_zero_reward_fn
                     )
                 
                     # logging
@@ -327,8 +331,8 @@ if __name__ == "__main__":
     wandb.init(
         project = cfg.wandb_project,
         name = (
-            f"grpo_log_loss{LOSS_TYPE_IDS[cfg.loss_type]}_lr{cfg.lr}_ro{cfg.rollout_batch_size}_G{cfg.group_size}"
-            f"_ep{cfg.epochs_per_rollout_batch}_gaccum{cfg.gradient_accumulation_steps}.jsonl"
+            f"grpo_log_loss{LOSS_TYPE_IDS[cfg.loss_type]}_lr{cfg.lr}_{cfg.lr_fin}_ro{cfg.rollout_batch_size}"
+            f"_G{cfg.group_size}_ep{cfg.epochs_per_rollout_batch}_gaccum{cfg.gradient_accumulation_steps}"
         ),
         entity=cfg.wandb_entity,
         config=vars(cfg)
@@ -356,12 +360,13 @@ if __name__ == "__main__":
     df_train = df_train.drop_duplicates().reset_index(drop=True)
     print(f"Num of train samples after deduplication: {df_train.shape}")
 
-    df_eval = pd.read_json(cfg.file_eval, lines=True).sample(cfg.eval_sample_size)
+    # read the full eval dataset, will do sampling inside training loop
+    df_eval = pd.read_json(cfg.file_eval, lines=True)
 
     # train
     log_file = (
-        f"grpo_log_loss{LOSS_TYPE_IDS[cfg.loss_type]}_lr{cfg.lr}_ro{cfg.rollout_batch_size}_G{cfg.group_size}"
-        f"_ep{cfg.epochs_per_rollout_batch}_gaccum{cfg.gradient_accumulation_steps}.jsonl"
+        f"grpo_log_loss{LOSS_TYPE_IDS[cfg.loss_type]}_lr{cfg.lr}_{cfg.lr_fin}_ro{cfg.rollout_batch_size}"
+        f"_G{cfg.group_size}_ep{cfg.epochs_per_rollout_batch}_gaccum{cfg.gradient_accumulation_steps}.jsonl"
     )
     grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_eval, log_file)
         
