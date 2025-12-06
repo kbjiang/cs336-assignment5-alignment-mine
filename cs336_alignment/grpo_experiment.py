@@ -164,7 +164,7 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
     micro_step = 0
     for grpo_step in tqdm(range(cfg.n_grpo_steps), total=cfg.n_grpo_steps):
         # different subset of df_eval for each step
-        df_eval_ = df_eval.sample(cfg.eval_sample_frac)
+        df_eval_ = df_eval.sample(frac=cfg.eval_sample_frac)
 
         # Update learning rate based on grpo_step (linear schedule from cfg.lr to cfg.lr_fin)
         lr = cfg.lr - (cfg.lr - cfg.lr_fin) * (grpo_step / (cfg.n_grpo_steps - 1))
