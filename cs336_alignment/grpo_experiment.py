@@ -163,13 +163,11 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
     loss_accumulated = 0.
     micro_step = 0
     for grpo_step in tqdm(range(cfg.n_grpo_steps), total=cfg.n_grpo_steps):
-        # Update learning rate based on ei_step (linear schedule from cfg.lr to cfg.lr_fin)
-        # lr = cfg.lr - (cfg.lr - cfg.lr_fin) * (ei_step / (cfg.n_ei_steps - 1))
-        # for param_group in optimizer.param_groups:
-        #     param_group['lr'] = lr
-        # print(f">>> EI step {ei_step}, learning rate: {lr}")
-        # wandb.log({"train/lr": lr, "train_step": step})
-        wandb.log({"train/lr": cfg.lr, "train_step": micro_step})
+        # Update learning rate based on grpo_step (linear schedule from cfg.lr to cfg.lr_fin)
+        lr = cfg.lr - (cfg.lr - cfg.lr_fin) * (grpo_step / (cfg.n_grpo_steps - 1))
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr
+        wandb.log({"train/lr": lr, "train_step": grpo_step})
 
         # 3. Sample a batch of questions        
         rollout_prompts = df_train.sample(n_prompts_per_rollout_batch)
@@ -329,7 +327,7 @@ if __name__ == "__main__":
     wandb.init(
         project = cfg.wandb_project,
         name = (
-            f"grpo_log_loss{LOSS_TYPE_IDS[cfg.loss_type]}_ro{cfg.rollout_batch_size}_G{cfg.group_size}"
+            f"grpo_log_loss{LOSS_TYPE_IDS[cfg.loss_type]}_lr{cfg.lr}_ro{cfg.rollout_batch_size}_G{cfg.group_size}"
             f"_ep{cfg.epochs_per_rollout_batch}_gaccum{cfg.gradient_accumulation_steps}.jsonl"
         ),
         entity=cfg.wandb_entity,
@@ -362,7 +360,7 @@ if __name__ == "__main__":
 
     # train
     log_file = (
-        f"grpo_log_loss{LOSS_TYPE_IDS[cfg.loss_type]}_ro{cfg.rollout_batch_size}_G{cfg.group_size}"
+        f"grpo_log_loss{LOSS_TYPE_IDS[cfg.loss_type]}_lr{cfg.lr}_ro{cfg.rollout_batch_size}_G{cfg.group_size}"
         f"_ep{cfg.epochs_per_rollout_batch}_gaccum{cfg.gradient_accumulation_steps}.jsonl"
     )
     grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_eval, log_file)

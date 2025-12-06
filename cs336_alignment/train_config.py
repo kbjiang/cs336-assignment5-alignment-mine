@@ -44,8 +44,8 @@ class GRPOTrainingConfig:
     file_train = "/home/azureuser/localfiles/cs336-assignment5-alignment-mine/data/train.jsonl"
     file_eval = "/home/azureuser/localfiles/cs336-assignment5-alignment-mine/data/validation.jsonl"
     model_id = "Qwen/Qwen2.5-Math-1.5B"
-    n_grpo_steps: int = 200
-    lr: float = 1e-5
+    n_grpo_steps: int = 100
+    lr: float = 4e-5
     lr_fin: float = 1e-5
     advantage_eps: float = 1e-6
     clip_range: float = 0.1
