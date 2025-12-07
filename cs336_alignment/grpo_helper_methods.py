@@ -1,6 +1,7 @@
-from typing import Callable
+from typing import Callable, Union
 import torch
 from cs336_alignment.drgrpo_grader import r1_zero_reward_fn
+from cs336_alignment.sft_helper_methods import masked_normalize
 from typing import Literal
 
 def compute_group_normalized_rewards(
@@ -78,6 +79,7 @@ def masked_mean(
     mask: torch.Tensor,
     dim: int | None = None
 ) -> torch.Tensor:
+    """when dim=-1, mean is sequence-specific"""
     return torch.sum(tensor*mask, dim=dim) / torch.sum(mask, dim=dim)
 
 def grpo_microbatch_train_step(
@@ -89,6 +91,7 @@ def grpo_microbatch_train_step(
     advantages: torch.Tensor | None = None,
     old_log_probs: torch.Tensor | None = None,
     cliprange: float | None = None,
+    masked_norm_func: Callable = masked_mean,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     loss, metadata = compute_policy_gradient_loss(
         policy_log_probs, 
@@ -98,11 +101,19 @@ def grpo_microbatch_train_step(
         old_log_probs,
         cliprange
     )
-    # batch_size = policy_log_probs.shape[0]
-
-    # no `/batch_size` to match `reduction=sum`
-    # this is different from sft, otherwise the pytest won't pass...
-    loss = masked_mean(loss, response_mask) / gradient_accumulation_steps
+    # `masked_mean` is sequence specific when dim=-1
+    if masked_norm_func == masked_mean:
+        loss = masked_norm_func(loss, response_mask, dim=-1)
+        loss = loss.mean() / gradient_accumulation_steps
+    # `masked_normalize` has batch-wise normalize_constant
+    elif masked_norm_func == masked_normalize:
+        normalize_constant = response_mask.sum(dim=-1).max()
+        loss = masked_norm_func(
+            loss, response_mask, normalize_constant, dim=-1
+        )
+        loss = loss.mean() / gradient_accumulation_steps
+    else:
+        raise ValueError(f"Wrong masked normalization: {masked_norm_func}")
 
     # backward called
     loss.backward()

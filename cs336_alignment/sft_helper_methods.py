@@ -71,12 +71,13 @@ def get_response_log_probs(
             result["token_entropy"] = compute_entropy(logits.to(device))
         return result
 
-def mask_normalize(
+def masked_normalize(
     tensor: torch.Tensor,
     mask: torch.Tensor,
     normalize_constant: float,
     dim: int | None = None,
 ) -> torch.Tensor:
+    """batch-wise normalize_constant"""
     return torch.sum(tensor * mask, dim=dim) / normalize_constant
 
 def sft_microbatch_train_step(
@@ -85,17 +86,15 @@ def sft_microbatch_train_step(
     gradient_accumulation_steps: int,
     normalize_constant: float=1.0,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-    loss = -1 * mask_normalize(
+    loss = -1 * masked_normalize(
         policy_log_probs,
         response_mask,
         normalize_constant,
-        dim=None
-    ) / gradient_accumulation_steps
-    # devided by batch_size to reproduce "reduction='mean'" as in PyTorch
+        dim=-1,
+    )
+    # average alone batch_size to reproduce "reduction='mean'" as in PyTorch
     # https://docs.pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
-    batch_size = policy_log_probs.shape[0] 
-    loss /= batch_size
-
+    loss = loss.mean() / gradient_accumulation_steps
     loss.backward()
 
     metadata = {

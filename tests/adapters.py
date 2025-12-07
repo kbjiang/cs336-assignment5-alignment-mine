@@ -319,8 +319,8 @@ def run_masked_normalize(
             (mask=0) don't contribute to the sum.
     """
     # raise NotImplementedError
-    from cs336_alignment.sft_helper_methods import mask_normalize
-    return mask_normalize(tensor, mask, normalize_constant, dim)
+    from cs336_alignment.sft_helper_methods import masked_normalize
+    return masked_normalize(tensor, mask, normalize_constant, dim)
 
 
 """

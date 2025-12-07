@@ -13,7 +13,12 @@ from pathlib import Path
 import pandas as pd
 from tqdm import tqdm
 from grpo_helper_methods import *
-from sft_helper_methods import get_response_log_probs, tokenize_prompt_and_output, log_generations
+from sft_helper_methods import (
+    get_response_log_probs,
+    tokenize_prompt_and_output,
+    log_generations,
+    masked_normalize,
+)
 import wandb
 
 
@@ -127,6 +132,15 @@ def sample_rollouts(
 
 # model -> policy, vllm_model -> old_policy
 def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_eval, log_file):
+    # Define loss normalization func
+    if cfg.loss_normalization == "masked_mean":
+        masked_norm_func = masked_mean
+    elif cfg.loss_normalization == "masked_normalize":
+        masked_norm_func = masked_normalize
+    else:
+        raise ValueError("Wrong type of loss normalization. Should be either `masked_mean` or `masked_normalize`.")
+
+    # Parameters check
     assert cfg.train_batch_size % cfg.gradient_accumulation_steps == 0, (
         "train_batch_size must be divisible by gradient_accumulation_steps"
     )
@@ -273,6 +287,7 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
                     micro_advantages,
                     micro_old_log_probs,
                     cfg.clip_range,
+                    masked_norm_func,
                 )
 
                 loss_accumulated += loss.item()
@@ -326,13 +341,43 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
 if __name__ == "__main__":
     cfg = GRPOTrainingConfig()
 
+    # Print relevant configurations
+    print("=" * 60)
+    print("GRPO Training Configuration:")
+    print(f"  Model: {cfg.model_id}")
+    print(f"  Loss type: {cfg.loss_type}")
+    print(f"  Loss normalization type: {cfg.loss_normalization}")
+    print(f"  Learning rate: {cfg.lr} -> {cfg.lr_fin}")
+    print(f"  Rollout batch size: {cfg.rollout_batch_size}")
+    print(f"  Group size (G): {cfg.group_size}")
+    print(f"  Train batch size: {cfg.train_batch_size}")
+    print(f"  Gradient accumulation steps: {cfg.gradient_accumulation_steps}")
+    print(f"  Epochs per rollout batch: {cfg.epochs_per_rollout_batch}")
+    print(f"  GRPO steps: {cfg.n_grpo_steps}")
+    print(f"  Clip range: {cfg.clip_range}")
+    print(f"  Normalize by std: {cfg.use_std_normalization}")
+    print(f"  Eval interval: {cfg.eval_interval}")
+    print(f"  Eval sample frac: {cfg.eval_sample_frac}")
+    print("=" * 60)
+
+    # Ask user to confirm before starting training
+    response = input("Start training? [y/N]: ").strip().lower()
+    if response != 'y':
+        print("Training cancelled.")
+        exit(0)
+
+    ##########################################################################
+
     LOSS_TYPE_IDS = {"no_baseline": 1, "reinforce_with_baseline": 2, "grpo_clip": 3}
+    LOSS_NORM_IDS = {"masked_mean": 1, "masked_normalize": 2}
+
     # Initialize wandb
     wandb.init(
         project = cfg.wandb_project,
         name = (
-            f"grpo_log_loss{LOSS_TYPE_IDS[cfg.loss_type]}_lr{cfg.lr}_{cfg.lr_fin}_ro{cfg.rollout_batch_size}"
-            f"_G{cfg.group_size}_ep{cfg.epochs_per_rollout_batch}_gaccum{cfg.gradient_accumulation_steps}"
+            f"grpo_ls{LOSS_TYPE_IDS[cfg.loss_type]}_lr{cfg.lr}_{cfg.lr_fin}_ro{cfg.rollout_batch_size}"
+            f"_G{cfg.group_size}_ep{cfg.epochs_per_rollout_batch}_ga{cfg.gradient_accumulation_steps}"
+            f"_lsnrm{LOSS_NORM_IDS[cfg.loss_normalization]}"
         ),
         entity=cfg.wandb_entity,
         config=vars(cfg)
@@ -365,8 +410,11 @@ if __name__ == "__main__":
 
     # train
     log_file = (
-        f"grpo_log_loss{LOSS_TYPE_IDS[cfg.loss_type]}_lr{cfg.lr}_{cfg.lr_fin}_ro{cfg.rollout_batch_size}"
-        f"_G{cfg.group_size}_ep{cfg.epochs_per_rollout_batch}_gaccum{cfg.gradient_accumulation_steps}.jsonl"
+        f"grpo_log_ls{LOSS_TYPE_IDS[cfg.loss_type]}_lr{cfg.lr}_{cfg.lr_fin}_ro{cfg.rollout_batch_size}"
+        f"_G{cfg.group_size}_ep{cfg.epochs_per_rollout_batch}_ga{cfg.gradient_accumulation_steps}"
+        f"_lsnrm{LOSS_NORM_IDS[cfg.loss_normalization]}.jsonl"
     )
+    print(f"Logging file: {log_file}")
+
     grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_eval, log_file)
         

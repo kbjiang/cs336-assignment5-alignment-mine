@@ -129,10 +129,10 @@ def sft_train(cfg, model, vllm_model, optimizer, tokenizer, df_train, df_eval, l
         )["log_probs"]
 
         # loss.backward() is inside `sft_microbatch_train_step`
-        # `normalize_constant` removes the impact of different seq-lens btw batches
+        # `normalize_constant` deals with different num of toks btw batches
         loss, metadata = sft_microbatch_train_step(
             policy_log_probs, response_masks, cfg.gradient_accumulation_steps,
-            normalize_constant=torch.sum(response_masks).item()
+            normalize_constant=response_masks.sum(dim=-1).max()
         )
         loss_accumulated += loss.item()
 

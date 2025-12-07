@@ -19,8 +19,8 @@ class SFTTrainingConfig:
     max_grad_norm: float | None = 1.0
     device_train: str = "cuda:0"
     device_eval: str = "cuda:1"
-    lr: float = 5e-5
-    lr_fin: float = 5e-5
+    lr: float = 1e-5
+    lr_fin: float = 1e-5
     warmup_ratio: float = 0.01
     weight_decay: float = 0.1
     adam_beta1: float = 0.9
@@ -45,7 +45,7 @@ class GRPOTrainingConfig:
     file_eval = "/home/azureuser/localfiles/cs336-assignment5-alignment-mine/data/validation.jsonl"
     model_id = "Qwen/Qwen2.5-Math-1.5B"
     n_grpo_steps: int = 100
-    lr: float = 4e-5
+    lr: float = 1e-5
     lr_fin: float = 1e-5
     advantage_eps: float = 1e-6
     clip_range: float = 0.1
@@ -57,6 +57,10 @@ class GRPOTrainingConfig:
     loss_type: Literal[
         "no_baseline", "reinforce_with_baseline", "grpo_clip",
     ] = "reinforce_with_baseline"
+    # ] = "no_baseline"
+    loss_normalization: Literal[
+        "masked_mean", "masked_normalize"
+    ] = "masked_mean"
     use_std_normalization: bool = True
     weight_decay: float = 0.0
     adam_beta1: float = 0.9
