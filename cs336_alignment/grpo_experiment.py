@@ -3,17 +3,17 @@ from typing import Callable
 from os import PathLike
 import torch
 from vllm import LLM, SamplingParams
-from cs336_alignment.drgrpo_grader import r1_zero_reward_fn
 from unittest.mock import patch
 from vllm.model_executor import set_random_seed as vllm_set_random_seed
 from transformers import PreTrainedModel
-from train_config import GRPOTrainingConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from pathlib import Path
 import pandas as pd
 from tqdm import tqdm
-from grpo_helper_methods import *
-from sft_helper_methods import (
+from cs336_alignment.drgrpo_grader import r1_zero_reward_fn
+from cs336_alignment.train_config import GRPOTrainingConfig
+from cs336_alignment.grpo_helper_methods import *
+from cs336_alignment.sft_helper_methods import (
     get_response_log_probs,
     tokenize_prompt_and_output,
     log_generations,
@@ -176,7 +176,10 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
 
     loss_accumulated = 0.
     micro_step = 0
+    metadatas = []
     for grpo_step in tqdm(range(cfg.n_grpo_steps), total=cfg.n_grpo_steps):
+        metadata = {"step": grpo_step}
+
         # different subset of df_eval for each step
         df_eval_ = df_eval.sample(frac=cfg.eval_sample_frac)
 
@@ -201,7 +204,7 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
         assert len(rollout_batch) == cfg.rollout_batch_size, "Wrong number of rollout samples"
 
         # 6 & 7. Compute rewards/advantages for every sampled output
-        advantages, raw_rewards, metadata = compute_group_normalized_rewards(
+        advantages, raw_rewards, metadata_ = compute_group_normalized_rewards(
             reward_fn=r1_zero_reward_fn,
             rollout_respones=rollout_batch.response.tolist(),
             repeated_ground_truths=rollout_batch.ground_truth.tolist(),
@@ -211,6 +214,8 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
         )
         assert advantages.shape[0] == cfg.rollout_batch_size, "Wrong advantages size"
         assert raw_rewards.shape[0] == cfg.rollout_batch_size, "Wrong raw_rewards size"
+        # include new metadata
+        metadata.update(metadata_)
 
         # 8. tokenize the whole batch so that `old_log_probs` can be calculated
         tokenized_dict = tokenize_prompt_and_output(
@@ -242,8 +247,6 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
 
         # 10. train
         for _ in range(cfg.epochs_per_rollout_batch):
-            # TODO: shuffle the rollout batch?
-            # rollout_batch = rollout_batch.sample(frac=1)
             for step in range(n_microbatches_per_rollout_batch):
                 micro_input_ids = input_ids[
                     step * micro_train_batch_size : (step + 1) * micro_train_batch_size
@@ -377,7 +380,7 @@ if __name__ == "__main__":
         name = (
             f"grpo_ls{LOSS_TYPE_IDS[cfg.loss_type]}_lr{cfg.lr}_{cfg.lr_fin}_ro{cfg.rollout_batch_size}"
             f"_G{cfg.group_size}_ep{cfg.epochs_per_rollout_batch}_ga{cfg.gradient_accumulation_steps}"
-            f"_lsnrm{LOSS_NORM_IDS[cfg.loss_normalization]}"
+            f"_lsnrm{LOSS_NORM_IDS[cfg.loss_normalization]}_std{int(cfg.use_std_normalization)}"
         ),
         entity=cfg.wandb_entity,
         config=vars(cfg)
@@ -412,7 +415,7 @@ if __name__ == "__main__":
     log_file = (
         f"grpo_log_ls{LOSS_TYPE_IDS[cfg.loss_type]}_lr{cfg.lr}_{cfg.lr_fin}_ro{cfg.rollout_batch_size}"
         f"_G{cfg.group_size}_ep{cfg.epochs_per_rollout_batch}_ga{cfg.gradient_accumulation_steps}"
-        f"_lsnrm{LOSS_NORM_IDS[cfg.loss_normalization]}.jsonl"
+        f"_lsnrm{LOSS_NORM_IDS[cfg.loss_normalization]}_std{int(cfg.use_std_normalization)}.jsonl"
     )
     print(f"Logging file: {log_file}")
 

@@ -21,7 +21,15 @@ def compute_group_normalized_rewards(
 
     if normalize_by_std:
         advantages = advantages / (raw_rewards.std(dim=-1, keepdim=True) + advantage_eps)
-    return advantages.flatten(), raw_rewards.flatten(), {}
+
+    metadata = {
+        "init_raw_rewards_mean": raw_rewards.mean().item(),
+        "init_raw_rewards_std": raw_rewards.std().item(),
+        "init_raw_rewards_min": raw_rewards.min().item(),
+        "init_raw_rewards_max": raw_rewards.max().item(),
+    }
+
+    return advantages.flatten(), raw_rewards.flatten(), metadata
 
 def compute_naive_policy_gradient_loss(
     raw_rewards_or_advantages: torch.Tensor,
