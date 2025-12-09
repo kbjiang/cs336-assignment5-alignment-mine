@@ -51,8 +51,8 @@ def compute_grpo_clip_loss(
     loss = -1 * torch.min(min_lhs, min_rhs)
 
     # value mismatch when clipping happened
-    clipped = min_lhs!=min_rhs
-    metadata = {"clipped": clipped}
+    clipped_token = min_lhs!=min_rhs
+    metadata = {"clipped_token": clipped_token}
 
     return loss, metadata
 

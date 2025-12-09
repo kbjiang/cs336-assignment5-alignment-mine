@@ -176,10 +176,7 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
 
     loss_accumulated = 0.
     micro_step = 0
-    metadatas = []
     for grpo_step in tqdm(range(cfg.n_grpo_steps), total=cfg.n_grpo_steps):
-        metadata = {"step": grpo_step}
-
         # different subset of df_eval for each step
         df_eval_ = df_eval.sample(frac=cfg.eval_sample_frac)
 
@@ -204,7 +201,7 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
         assert len(rollout_batch) == cfg.rollout_batch_size, "Wrong number of rollout samples"
 
         # 6 & 7. Compute rewards/advantages for every sampled output
-        advantages, raw_rewards, metadata_ = compute_group_normalized_rewards(
+        advantages, raw_rewards, metadata = compute_group_normalized_rewards(
             reward_fn=r1_zero_reward_fn,
             rollout_respones=rollout_batch.response.tolist(),
             repeated_ground_truths=rollout_batch.ground_truth.tolist(),
@@ -214,8 +211,10 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
         )
         assert advantages.shape[0] == cfg.rollout_batch_size, "Wrong advantages size"
         assert raw_rewards.shape[0] == cfg.rollout_batch_size, "Wrong raw_rewards size"
-        # include new metadata
-        metadata.update(metadata_)
+
+        # fields for tracking clipped fraction running average
+        metadata["clipped_fraction"] = 0.0
+        metadata["clipped_count"] = 0
 
         # 8. tokenize the whole batch so that `old_log_probs` can be calculated
         tokenized_dict = tokenize_prompt_and_output(
@@ -281,7 +280,7 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
                     ].to(cfg.device_train)
 
                 # loss.backward() is inside `microbatch_train_step`
-                loss, metadata = grpo_microbatch_train_step(
+                loss, metadata_ = grpo_microbatch_train_step(
                     policy_log_probs,
                     micro_response_masks,
                     cfg.gradient_accumulation_steps,
@@ -292,18 +291,38 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
                     cfg.clip_range,
                     masked_norm_func,
                 )
-
                 loss_accumulated += loss.item()
+
+                if "clipped_token" in metadata_:
+                    # running average: new_avg = old_avg + (new_val - old_avg) / (n + 1)
+                    new_val = metadata_["clipped_token"].float().mean().item()
+                    n = metadata["clipped_count"]
+                    metadata["clipped_fraction"] += (new_val - metadata["clipped_fraction"]) / (n + 1)
+                    metadata["clipped_count"] += 1
 
                 # take a step
                 if (step + 1) % cfg.gradient_accumulation_steps == 0:
+                    # Compute gradient norm (before clipping if applicable)
                     if cfg.max_grad_norm is not None:
-                        torch.nn.utils.clip_grad_norm_(policy.parameters(), cfg.max_grad_norm)
+                        grad_norm = torch.nn.utils.clip_grad_norm_(policy.parameters(), cfg.max_grad_norm)
+                    else:
+                        # Compute norm without clipping
+                        grad_norm = torch.nn.utils.clip_grad_norm_(policy.parameters(), float('inf'))
+                    
                     optimizer.step()
                     optimizer.zero_grad()
-                    print(f"Loss {loss_accumulated}")
-                    wandb.log({"train/loss": loss_accumulated, "train_step": micro_step + 1})
+                    print(f"Loss {loss_accumulated}, Grad Norm {grad_norm.item():.4f}")
+                    wandb.log({
+                        "train/loss": loss_accumulated, 
+                        "train/grad_norm": grad_norm.item(),
+                        "train_step": micro_step + 1,
+                    })
                     loss_accumulated = 0.
+                    if metadata["clipped_count"] > 0:
+                        wandb.log({
+                            "train/clipped_fraction": metadata["clipped_fraction"],
+                            "train_step": micro_step + 1,
+                        })
 
                 # do eval regularly
                 if micro_step == 0 or (step + 1) % cfg.eval_interval == 0:
@@ -320,6 +339,11 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
                     log = log_generations(
                         policy, tokenizer, micro_step, prompts, solutions_generated, solutions, evals
                     )
+                    log.update(metadata)
+
+                    # reset clipped_fraction running average
+                    metadata["clipped_fraction"] = 0.0
+                    metadata["clipped_count"] = 0
 
                     print({k:v for k, v in log.items() if k != "samples"})
 
