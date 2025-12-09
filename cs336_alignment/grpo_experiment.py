@@ -182,7 +182,7 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
     for grpo_step in tqdm(range(cfg.n_grpo_steps), total=cfg.n_grpo_steps):
         # initialize some metadata for future logging
         metadata = {
-            "grpo_step": grpo_step + 1,
+            "grpo_step": grpo_step,
             "train_loss": 0.,
             "train_grad_norm" : 0.
         }
@@ -198,7 +198,7 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
         metadata["learning_rate"] = lr
-        wandb.log({"train/lr": lr, "train_step": micro_step+1})
+        wandb.log({"train/lr": lr, "train_step": micro_step})
 
         # 3. Sample a batch of questions        
         rollout_prompts = df_train.sample(n_prompts_per_rollout_batch)
@@ -258,7 +258,7 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
 
         # 10. train
         for grpo_epoch in range(cfg.epochs_per_rollout_batch):
-            metadata["grpo_epoch"] = grpo_epoch + 1
+            metadata["grpo_epoch"] = grpo_epoch
             for step in range(n_microbatches_per_rollout_batch):
                 micro_input_ids = input_ids[
                     step * micro_train_batch_size : (step + 1) * micro_train_batch_size
@@ -331,7 +331,7 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
                     wandb.log({
                         "train/loss": loss_accumulated, 
                         "train/grad_norm": grad_norm.item(),
-                        "train_step": micro_step + 1,
+                        "train_step": micro_step,
                     })
                     metadata["train_loss"] = loss_accumulated
                     metadata["train_grad_norm"] = grad_norm.item()
@@ -339,7 +339,7 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
                     if metadata["clipped_fractions"]:
                         wandb.log({
                             "train/clipped_fraction": sum(metadata["clipped_fractions"]) / len(metadata["clipped_fractions"]),
-                            "train_step": micro_step + 1,
+                            "train_step": micro_step,
                         })
 
                 # do eval regularly
@@ -355,7 +355,7 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
                 
                     # logging
                     log = log_generations(
-                        policy, tokenizer, micro_step + 1, prompts, solutions_generated, solutions, evals
+                        policy, tokenizer, micro_step, prompts, solutions_generated, solutions, evals
                     )
                     if metadata["clipped_fractions"]:
                         metadata["clipped_fraction"] = sum(metadata["clipped_fractions"]) / len(metadata["clipped_fractions"])
@@ -375,7 +375,7 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
                         "eval/reward": log['reward'], 
                         "eval/reward_format": log['reward_format'], 
                         "eval/reward_answer": log['reward_answer'], 
-                        "eval_step": micro_step + 1
+                        "eval_step": micro_step
                     })
 
                 micro_step += 1
