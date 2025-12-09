@@ -180,6 +180,16 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
     loss_accumulated = 0.
     micro_step = 0
     for grpo_step in tqdm(range(cfg.n_grpo_steps), total=cfg.n_grpo_steps):
+        # initialize some metadata for future logging
+        metadata = {
+            "grpo_step": grpo_step + 1,
+            "train_loss": 0.,
+            "train_grad_norm" : 0.
+        }
+        # list to accumulate clipped fractions across microbatches
+        metadata["clipped_fractions"] = []
+        # metadata["clipped_fraction"] = -1.
+
         # different subset of df_eval for each step
         df_eval_ = df_eval.sample(frac=cfg.eval_sample_frac)
 
@@ -187,7 +197,8 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
         lr = cfg.lr - (cfg.lr - cfg.lr_fin) * (grpo_step / (cfg.n_grpo_steps - 1))
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
-        wandb.log({"train/lr": lr, "train_step": micro_step})
+        metadata["learning_rate"] = lr
+        wandb.log({"train/lr": lr, "train_step": micro_step+1})
 
         # 3. Sample a batch of questions        
         rollout_prompts = df_train.sample(n_prompts_per_rollout_batch)
@@ -204,7 +215,7 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
         assert len(rollout_batch) == cfg.rollout_batch_size, "Wrong number of rollout samples"
 
         # 6 & 7. Compute rewards/advantages for every sampled output
-        advantages, raw_rewards, metadata = compute_group_normalized_rewards(
+        advantages, raw_rewards, metadata_ = compute_group_normalized_rewards(
             reward_fn=r1_zero_reward_fn,
             rollout_respones=rollout_batch.response.tolist(),
             repeated_ground_truths=rollout_batch.ground_truth.tolist(),
@@ -214,12 +225,8 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
         )
         assert advantages.shape[0] == cfg.rollout_batch_size, "Wrong advantages size"
         assert raw_rewards.shape[0] == cfg.rollout_batch_size, "Wrong raw_rewards size"
+        metadata.update(metadata_)
 
-        # initialize some metadata for future logging
-        # list to accumulate clipped fractions across microbatches
-        clipped_fractions = []
-        metadata["train_loss"] = 0.
-        metadata["train_grad_norm"] = 0.
 
         # 8. tokenize the whole batch so that `old_log_probs` can be calculated
         tokenized_dict = tokenize_prompt_and_output(
@@ -250,7 +257,8 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
             old_log_probs = None
 
         # 10. train
-        for _ in range(cfg.epochs_per_rollout_batch):
+        for grpo_epoch in range(cfg.epochs_per_rollout_batch):
+            metadata["grpo_epoch"] = grpo_epoch + 1
             for step in range(n_microbatches_per_rollout_batch):
                 micro_input_ids = input_ids[
                     step * micro_train_batch_size : (step + 1) * micro_train_batch_size
@@ -262,7 +270,7 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
                     step * micro_train_batch_size : (step + 1) * micro_train_batch_size
                 ].to(cfg.device_train)
 
-                policy_log_probs = get_response_log_probs(
+                micro_policy_log_probs = get_response_log_probs(
                     policy, micro_input_ids, micro_labels, return_token_entropy=False
                 )["log_probs"]
 
@@ -272,10 +280,10 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
                 micro_raw_rewards = raw_rewards[
                     step * micro_train_batch_size : (step + 1) * micro_train_batch_size
                 ].to(cfg.device_train)
-                # need to match the shape of `policy_log_probs`
+                # need to match the shape of `micro_policy_log_probs`
                 micro_advantages = micro_advantages.unsqueeze(-1)
                 micro_raw_rewards = micro_raw_rewards.unsqueeze(-1)
-                assert len(micro_advantages.shape) == len(policy_log_probs.shape), "shape mismatch!"
+                assert len(micro_advantages.shape) == len(micro_policy_log_probs.shape), "shape mismatch!"
 
                 if old_log_probs is None:
                     micro_old_log_probs = None
@@ -286,7 +294,7 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
 
                 # loss.backward() is inside `microbatch_train_step`
                 loss, metadata_ = grpo_microbatch_train_step(
-                    policy_log_probs,
+                    micro_policy_log_probs,
                     micro_response_masks,
                     cfg.gradient_accumulation_steps,
                     cfg.loss_type,
@@ -297,9 +305,16 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
                     masked_norm_func,
                 )
                 loss_accumulated += loss.item()
+                
+                # NOTE: only when `grpo_epoch > 0` are we in OFF-POLICY region!
+                # When `grpo_epoch==0`, `policy_log_probs` and `old_log_probs` are equal.
+                if grpo_epoch > 0:
+                    assert not torch.allclose(micro_old_log_probs, micro_policy_log_probs), (
+                        "Policy and old policy should be different in later GRPO epoch"
+                    )
 
                 if "clipped_token" in metadata_:
-                    clipped_fractions.append(metadata_["clipped_token"].float().mean().item())
+                    metadata["clipped_fractions"].append(metadata_["clipped_token"].float().mean().item())
 
                 # take a step
                 if (step + 1) % cfg.gradient_accumulation_steps == 0:
@@ -321,9 +336,9 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
                     metadata["train_loss"] = loss_accumulated
                     metadata["train_grad_norm"] = grad_norm.item()
                     loss_accumulated = 0.
-                    if clipped_fractions:
+                    if metadata["clipped_fractions"]:
                         wandb.log({
-                            "train/clipped_fraction": sum(clipped_fractions) / len(clipped_fractions),
+                            "train/clipped_fraction": sum(metadata["clipped_fractions"]) / len(metadata["clipped_fractions"]),
                             "train_step": micro_step + 1,
                         })
 
@@ -342,12 +357,12 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
                     log = log_generations(
                         policy, tokenizer, micro_step + 1, prompts, solutions_generated, solutions, evals
                     )
-                    if clipped_fractions:
-                        metadata["clipped_fraction"] = sum(clipped_fractions) / len(clipped_fractions)
+                    if metadata["clipped_fractions"]:
+                        metadata["clipped_fraction"] = sum(metadata["clipped_fractions"]) / len(metadata["clipped_fractions"])
                     log.update(metadata)
 
                     # reset clipped_fractions list
-                    clipped_fractions = []
+                    metadata["clipped_fractions"] = []
 
                     print({k:v for k, v in log.items() if k != "samples"})
 
@@ -440,7 +455,7 @@ if __name__ == "__main__":
     df_eval = pd.read_json(cfg.file_eval, lines=True)
 
     # train
-    log_file = (
+    log_file = Path(__file__).parent / "logs" / (
         f"grpo_log_ls{LOSS_TYPE_IDS[cfg.loss_type]}_lr{cfg.lr}_{cfg.lr_fin}_ro{cfg.rollout_batch_size}"
         f"_G{cfg.group_size}_ep{cfg.epochs_per_rollout_batch}_ga{cfg.gradient_accumulation_steps}"
         f"_lsnrm{LOSS_NORM_IDS[cfg.loss_normalization]}_std{int(cfg.use_std_normalization)}.jsonl"
