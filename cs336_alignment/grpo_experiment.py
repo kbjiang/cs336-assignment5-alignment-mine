@@ -212,9 +212,8 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
         assert advantages.shape[0] == cfg.rollout_batch_size, "Wrong advantages size"
         assert raw_rewards.shape[0] == cfg.rollout_batch_size, "Wrong raw_rewards size"
 
-        # fields for tracking clipped fraction running average
-        metadata["clipped_fraction"] = 0.0
-        metadata["clipped_count"] = 0
+        # list to accumulate clipped fractions across microbatches
+        clipped_fractions = []
 
         # 8. tokenize the whole batch so that `old_log_probs` can be calculated
         tokenized_dict = tokenize_prompt_and_output(
@@ -294,11 +293,7 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
                 loss_accumulated += loss.item()
 
                 if "clipped_token" in metadata_:
-                    # running average: new_avg = old_avg + (new_val - old_avg) / (n + 1)
-                    new_val = metadata_["clipped_token"].float().mean().item()
-                    n = metadata["clipped_count"]
-                    metadata["clipped_fraction"] += (new_val - metadata["clipped_fraction"]) / (n + 1)
-                    metadata["clipped_count"] += 1
+                    clipped_fractions.append(metadata_["clipped_token"].float().mean().item())
 
                 # take a step
                 if (step + 1) % cfg.gradient_accumulation_steps == 0:
@@ -318,9 +313,9 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
                         "train_step": micro_step + 1,
                     })
                     loss_accumulated = 0.
-                    if metadata["clipped_count"] > 0:
+                    if clipped_fractions:
                         wandb.log({
-                            "train/clipped_fraction": metadata["clipped_fraction"],
+                            "train/clipped_fraction": sum(clipped_fractions) / len(clipped_fractions),
                             "train_step": micro_step + 1,
                         })
 
@@ -339,11 +334,12 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
                     log = log_generations(
                         policy, tokenizer, micro_step, prompts, solutions_generated, solutions, evals
                     )
+                    if clipped_fractions:
+                        metadata["clipped_fraction"] = sum(clipped_fractions) / len(clipped_fractions)
                     log.update(metadata)
 
-                    # reset clipped_fraction running average
-                    metadata["clipped_fraction"] = 0.0
-                    metadata["clipped_count"] = 0
+                    # reset clipped_fractions list
+                    clipped_fractions = []
 
                     print({k:v for k, v in log.items() if k != "samples"})
 
