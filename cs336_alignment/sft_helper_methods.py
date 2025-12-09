@@ -157,4 +157,10 @@ def log_generations(
         sample_logs.append(sample_log)
     
     log["samples"] = sample_logs
+    
+    # Reorder so fields with 'step' or 'epoch' come first
+    priority_keys = [k for k in log if 'step' in k.lower() or 'epoch' in k.lower()]
+    other_keys = [k for k in log if k not in priority_keys]
+    log = {k: log[k] for k in priority_keys + other_keys}
+    
     return log
