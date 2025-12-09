@@ -359,7 +359,9 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
                     )
                     if metadata["clipped_fractions"]:
                         metadata["clipped_fraction"] = sum(metadata["clipped_fractions"]) / len(metadata["clipped_fractions"])
-                    log.update(metadata)
+
+                    # do not need to log the long list of `clipped_fractions`
+                    log.update({k: v for k, v in metadata.items() if k != "clipped_fractions"})
 
                     # reset clipped_fractions list
                     metadata["clipped_fractions"] = []
