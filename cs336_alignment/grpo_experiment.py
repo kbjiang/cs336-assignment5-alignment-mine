@@ -141,6 +141,9 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
         raise ValueError("Wrong type of loss normalization. Should be either `masked_mean` or `masked_normalize`.")
 
     # Parameters check
+    assert cfg.eval_interval % cfg.gradient_accumulation_steps == 0, (
+        "evaluation interval must be divisible by gradient accumulation steps"
+    )
     assert cfg.train_batch_size % cfg.gradient_accumulation_steps == 0, (
         "train_batch_size must be divisible by gradient_accumulation_steps"
     )
@@ -212,8 +215,11 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
         assert advantages.shape[0] == cfg.rollout_batch_size, "Wrong advantages size"
         assert raw_rewards.shape[0] == cfg.rollout_batch_size, "Wrong raw_rewards size"
 
+        # initialize some metadata for future logging
         # list to accumulate clipped fractions across microbatches
         clipped_fractions = []
+        metadata["train_loss"] = 0.
+        metadata["train_grad_norm"] = 0.
 
         # 8. tokenize the whole batch so that `old_log_probs` can be calculated
         tokenized_dict = tokenize_prompt_and_output(
@@ -306,12 +312,14 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
                     
                     optimizer.step()
                     optimizer.zero_grad()
-                    print(f"Loss {loss_accumulated}, Grad Norm {grad_norm.item():.4f}")
+                    # print(f"Loss {loss_accumulated}, Grad Norm {grad_norm.item():.4f}")
                     wandb.log({
                         "train/loss": loss_accumulated, 
                         "train/grad_norm": grad_norm.item(),
                         "train_step": micro_step + 1,
                     })
+                    metadata["train_loss"] = loss_accumulated
+                    metadata["train_grad_norm"] = grad_norm.item()
                     loss_accumulated = 0.
                     if clipped_fractions:
                         wandb.log({
@@ -332,7 +340,7 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
                 
                     # logging
                     log = log_generations(
-                        policy, tokenizer, micro_step, prompts, solutions_generated, solutions, evals
+                        policy, tokenizer, micro_step + 1, prompts, solutions_generated, solutions, evals
                     )
                     if clipped_fractions:
                         metadata["clipped_fraction"] = sum(clipped_fractions) / len(clipped_fractions)
