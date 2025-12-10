@@ -44,7 +44,7 @@ class GRPOTrainingConfig:
     lr: float = 4e-5
     lr_fin: float = 3e-5
     epochs_per_rollout_batch: int = 2  # 1 means on-policy
-    rollout_batch_size: int = 512
+    rollout_batch_size: int = 256
     train_batch_size: int = 512  # on-policy
     gradient_accumulation_steps: int = 128  # microbatch size is 2, will fit on H100
     eval_interval: int = 128

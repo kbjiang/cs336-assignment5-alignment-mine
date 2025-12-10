@@ -426,7 +426,7 @@ if __name__ == "__main__":
     wandb.init(
         project = cfg.wandb_project,
         name = (
-            f"grpo_ls{LOSS_TYPE_IDS[cfg.loss_type]}_lr{cfg.lr}_{cfg.lr_fin}_ro{cfg.rollout_batch_size}"
+            f"grpo_ls{LOSS_TYPE_IDS[cfg.loss_type]}_lr{cfg.lr}_{cfg.lr_fin}_tbs{cfg.train_batch_size}"
             f"_G{cfg.group_size}_ep{cfg.epochs_per_rollout_batch}_ga{cfg.gradient_accumulation_steps}"
             f"_lsnrm{LOSS_NORM_IDS[cfg.loss_normalization]}_std{int(cfg.use_std_normalization)}"
         ),
@@ -461,7 +461,7 @@ if __name__ == "__main__":
 
     # train
     log_file = Path(__file__).parent / "logs" / (
-        f"grpo_log_ls{LOSS_TYPE_IDS[cfg.loss_type]}_lr{cfg.lr}_{cfg.lr_fin}_ro{cfg.rollout_batch_size}"
+        f"grpo_log_ls{LOSS_TYPE_IDS[cfg.loss_type]}_lr{cfg.lr}_{cfg.lr_fin}_tbs{cfg.train_batch_size}"
         f"_G{cfg.group_size}_ep{cfg.epochs_per_rollout_batch}_ga{cfg.gradient_accumulation_steps}"
         f"_lsnrm{LOSS_NORM_IDS[cfg.loss_normalization]}_std{int(cfg.use_std_normalization)}.jsonl"
     )
