@@ -191,7 +191,7 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
         # metadata["clipped_fraction"] = -1.
 
         # different subset of df_eval for each step
-        df_eval_ = df_eval.sample(frac=cfg.eval_sample_frac)
+        df_eval_ = df_eval.sample(frac=cfg.eval_sample_frac, random_state=42)
 
         # Update learning rate based on grpo_step (linear schedule from cfg.lr to cfg.lr_fin)
         lr = cfg.lr - (cfg.lr - cfg.lr_fin) * (grpo_step / (cfg.n_grpo_steps - 1))
@@ -227,7 +227,6 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
         assert raw_rewards.shape[0] == cfg.rollout_batch_size, "Wrong raw_rewards size"
         metadata.update(metadata_)
 
-
         # 8. tokenize the whole batch so that `old_log_probs` can be calculated
         tokenized_dict = tokenize_prompt_and_output(
             rollout_batch.prompt.tolist(),
@@ -238,12 +237,14 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
         labels = tokenized_dict["labels"]
         response_masks = tokenized_dict["response_masks"]
 
-        # 9. get `old_log_probs` is necessary
+        # 9. get `old_log_probs` if necessary
         # I used `policy` before it's been updated; `old_policy` is vllm model, hard to get log_probs
         # Compute in chunks to avoid OOM
         if cfg.loss_type == "grpo_clip":
+            # Clear cache before computing old_log_probs to avoid fragmentation
+            torch.cuda.empty_cache()
             old_log_probs_chunks = []
-            chunk_size = 64  # reasonable batch size for inference
+            chunk_size = 32  # reduced chunk size to avoid OOM
             with torch.inference_mode():
                 for i in range(0, len(input_ids), chunk_size):
                     chunk_input_ids = input_ids[i:i+chunk_size].to(cfg.device_train)
@@ -252,7 +253,11 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
                         policy, chunk_input_ids, chunk_labels, return_token_entropy=False
                     )["log_probs"].cpu()
                     old_log_probs_chunks.append(chunk_log_probs)
+                    # Free intermediate tensors
+                    del chunk_input_ids, chunk_labels, chunk_log_probs
             old_log_probs = torch.cat(old_log_probs_chunks, dim=0)
+            del old_log_probs_chunks
+            torch.cuda.empty_cache()
         else:
             old_log_probs = None
 
@@ -307,10 +312,10 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
                 loss_accumulated += loss.item()
                 
                 # NOTE: only when `grpo_epoch > 0` are we in OFF-POLICY region!
-                # When `grpo_epoch==0`, `policy_log_probs` and `old_log_probs` are equal.
+                # When `grpo_epoch==0`, `policy_log_probs` and `old_log_probs` equal.
                 if grpo_epoch > 0:
                     assert not torch.allclose(micro_old_log_probs, micro_policy_log_probs), (
-                        "Policy and old policy should be different in later GRPO epoch"
+                        "Policy and old policy should be different in later GRPO epochs"
                     )
 
                 if "clipped_token" in metadata_:
@@ -328,19 +333,17 @@ def grpo_train_loop(cfg, policy, old_policy, optimizer, tokenizer, df_train, df_
                     optimizer.step()
                     optimizer.zero_grad()
                     # print(f"Loss {loss_accumulated}, Grad Norm {grad_norm.item():.4f}")
-                    wandb.log({
+                    train_log = {
                         "train/loss": loss_accumulated, 
                         "train/grad_norm": grad_norm.item(),
                         "train_step": micro_step,
-                    })
+                    }
+                    if metadata["clipped_fractions"]:
+                        train_log["train/clipped_fraction"] = sum(metadata["clipped_fractions"]) / len(metadata["clipped_fractions"])
+                    wandb.log(train_log)
                     metadata["train_loss"] = loss_accumulated
                     metadata["train_grad_norm"] = grad_norm.item()
                     loss_accumulated = 0.
-                    if metadata["clipped_fractions"]:
-                        wandb.log({
-                            "train/clipped_fraction": sum(metadata["clipped_fractions"]) / len(metadata["clipped_fractions"]),
-                            "train_step": micro_step,
-                        })
 
                 # do eval regularly
                 if micro_step == 0 or (step + 1) % cfg.eval_interval == 0:

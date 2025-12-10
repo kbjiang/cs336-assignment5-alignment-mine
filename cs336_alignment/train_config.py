@@ -42,11 +42,12 @@ class SFTTrainingConfig:
 class GRPOTrainingConfig:
     n_grpo_steps: int = 50
     lr: float = 4e-5
-    lr_fin: float = 1e-5
+    lr_fin: float = 3e-5
     epochs_per_rollout_batch: int = 2  # 1 means on-policy
-    train_batch_size: int = 256  # on-policy
-    gradient_accumulation_steps: int = 64  # microbatch size is 2, will fit on H100
-    eval_interval: int = 64
+    rollout_batch_size: int = 512
+    train_batch_size: int = 512  # on-policy
+    gradient_accumulation_steps: int = 128  # microbatch size is 2, will fit on H100
+    eval_interval: int = 128
     eval_sample_frac: float = 0.5
     loss_type: Literal[
         "no_baseline", "reinforce_with_baseline", "grpo_clip",
@@ -58,7 +59,6 @@ class GRPOTrainingConfig:
     ] = "masked_mean"
     # ] = "masked_normalize"
     use_std_normalization: bool = True
-    rollout_batch_size: int = 256
     group_size: int = 8
     advantage_eps: float = 1e-6
     clip_range: float = 0.1
