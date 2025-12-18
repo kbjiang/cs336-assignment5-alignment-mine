@@ -424,7 +424,9 @@ def run_parse_gsm8k_response(
         str with the predicted numeric answer if the model output can be parsed into a prediction,
         else None.
     """
-    raise NotImplementedError
+    # raise NotImplementedError
+    from cs336_alignment.rlhf_helper_methods import parse_gsm8k_response
+    return parse_gsm8k_response(model_output)
 
 
 def run_compute_per_instance_dpo_loss(

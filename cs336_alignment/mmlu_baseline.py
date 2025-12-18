@@ -1,9 +1,14 @@
 from vllm import LLM, SamplingParams
 from pathlib import Path
 import pandas as pd
-from .rlhf_helper_methods import parse_mmlu_response
+import argparse
+from rlhf_helper_methods import parse_mmlu_response
 
 if __name__=="__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mmlu_eval_dir", type=str, default="/home/azureuser/localfiles/cs336-assignment5-alignment-mine/data/mmlu/val")
+    args = parser.parse_args()
+
     llm = LLM(model="meta-llama/Llama-3.1-8B")
 
     # Create a sampling params object, stopping generation on newline.
@@ -12,11 +17,11 @@ if __name__=="__main__":
     )
 
     # 1. load mmlu examples
-    mmlu_eval_dir = Path("/home/azureuser/localfiles/cs336-assignment5-alignment-mine/data/mmlu/val")
+    mmlu_eval_dir = Path(args.mmlu_eval_dir)
 
     mmlu_examples = []
     for file in mmlu_eval_dir.glob("*.csv"):
-        subject = file.name.split("_val.csv")[0]
+        subject = file.name.rsplit("_", 1)[0]
         df = pd.read_csv(file, names=["question", "A", "B", "C", "D", "answer"])
         df["subject"] = subject
         df["options"] = df[["A", "B", "C", "D"]].values.tolist()
@@ -43,7 +48,6 @@ if __name__=="__main__":
         zero_shot_prompt_template = f.read()
 
     prompts = [zero_shot_prompt_template.format(instruction=instruction) for instruction in mmlu_instructions]
-    print(zero_shot_prompt_template)
 
     # 3. generate outputs
     outputs = llm.generate(prompts, sampling_params, use_tqdm=True)
@@ -52,10 +56,23 @@ if __name__=="__main__":
 
     # 4. calculate evaluation metrics, in this case accuracy
     answers = [parse_mmlu_response(opt) for opt in outputs]
+    assert len(answers) == len(mmlu_examples), "missing answers; check parsing."
+
     ground_truths = [eg["answer"] for eg in mmlu_examples]
-    accuracy = sum([ans == gt for ans, gt in zip(answers, ground_truths)]) / len(answers)
+    accuracies = [ans == gt for ans, gt in zip(answers, ground_truths)]
+    accuracy = sum(accuracies) / len(answers)
+    print(f"MMLU eval accuracy: {accuracy}.")
 
     # serialization
-    for instruct, opt, 
+    df = pd.DataFrame({
+        "subject": [eg["subject"] for eg in mmlu_examples],
+        "instruction": mmlu_instructions,
+        "raw_answer": outputs,
+        "answer": answers,
+        "ground_truth": ground_truths,
+        "accurate": accuracies
+    })
 
-
+    output_file = "./mmlu_baseline_eval.jsonl"
+    df.to_json(output_file, orient="records", lines=True)
+    print(f"Eval output saved to: {output_file}.")
