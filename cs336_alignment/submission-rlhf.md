@@ -9,7 +9,8 @@
 ### gsm8k_baseline
 * (a) Done
 * (b) Done
-* (c) Zero.
+* (c) Ran `df.answer.isna()` returned `10` rows (out of `1319`). 
+    * Majority are repeating the question, a few "do not understand question", one answered "five" instead of "5".
 * (d) With VLLM, `test` file, `00:35<00:00, 36.75it/s, est. speed input: 7348.95 toks/s, output: 5289.59 toks/s`
-* (e) `gsm8k eval accuracy: 0.15921152388172857` This is understandable, given `mmlu` provided options.
-* (f) On top of mathematical error, the model did repeat the question, instead of answering, sometimes. This is reasonable, given `mmlu` specified output format.
+* (e) `gsm8k eval accuracy: 0.15921152388172857`. This is lower than `mmlu`, which is multi-choice.
+* (f) On top of mathematical error, the model did repeat the question, instead of answering, sometimes. This is lower than `mmlu` where output format is specified.

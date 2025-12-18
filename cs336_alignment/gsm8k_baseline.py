@@ -66,6 +66,6 @@ if __name__=="__main__":
         "accurate": accuracies
     })
 
-    output_file = "./gsm8k_baseline_eval_0.jsonl"
+    output_file = "./gsm8k_baseline_eval.jsonl"
     df.to_json(output_file, orient="records", lines=True)
     print(f"Eval output saved to: {output_file}.")
