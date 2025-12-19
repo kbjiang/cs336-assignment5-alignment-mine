@@ -73,6 +73,6 @@ if __name__=="__main__":
         "accurate": accuracies
     })
 
-    output_file = "./mmlu_baseline_eval.jsonl"
+    output_file = Path(__file__).parent / "mmlu_baseline_eval.jsonl"
     df.to_json(output_file, orient="records", lines=True)
     print(f"Eval output saved to: {output_file}.")
