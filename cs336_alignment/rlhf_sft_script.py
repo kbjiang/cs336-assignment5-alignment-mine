@@ -2,18 +2,17 @@ import json
 from typing import Callable
 from os import PathLike
 import torch
-from cs336_alignment.drgrpo_grader import r1_zero_reward_fn
 from unittest.mock import patch
-from vllm.model_executor import set_random_seed as vllm_set_random_seed
 from transformers import PreTrainedModel
 from transformers import AutoModelForCausalLM, AutoTokenizer, get_cosine_schedule_with_warmup
 from pathlib import Path
 import pandas as pd
 from tqdm import tqdm
 import wandb
-from cs336_alignment.rlhf_helper_methods import *
+from rlhf_helper_methods import *
 from rlhf_train_config import SFTTrainingConfig
 from torch.nn import CrossEntropyLoss
+import random
 
 def get_prompts(prompt_template, problems):
     prompts = [prompt_template.replace("{question}", p) for p in problems]
@@ -42,23 +41,30 @@ def get_optimizer(cfg, model):
     )
     return optimizer
 
-def sft_train(cfg, model, optimizer, scheduler, tokenizer, ds_train, ds_eval):
+def sft_train(cfg, model, optimizer, scheduler, tokenizer, ds_train, ds_eval, total_train_steps, save_dir):
     assert cfg.train_batch_size % cfg.gradient_accumulation_steps == 0
     # assert cfg.train_steps % cfg.gradient_accumulation_steps == 0
-    assert cfg.eval_interval % cfg.gradient_accumulation_steps == 0
+    assert cfg.eval_steps % cfg.gradient_accumulation_steps == 0
     microbatch_size = cfg.train_batch_size // cfg.gradient_accumulation_steps
 
     loss_fn = CrossEntropyLoss()
     loss_accumulated = 0.
     step = 0
     model.train()
-    for epoch in range(cfg.train_epoch):
+    
+    # Progress bar tracks optimizer steps, not batches
+    pbar = tqdm(total=total_train_steps)
+    
+    for epoch in range(cfg.train_epochs):
         # data loader recreated for each epoch
         dl_train = iterate_batches(ds_train, microbatch_size, shuffle=True)
-        dl_eval = iterate_batches(ds_eval, microbatch_size*2, shuffle=False)
-        for _, (input_ids, labels) in tqdm(enumerate(dl_train), total = len(ds_train)//microbatch_size):
+        for batch in dl_train:
+            batch = {k: v.to(model.device) for k, v in batch.items()} 
             # Forwad pass
-            logits = model(input_ids).logits
+            logits = model(batch["input_ids"]).logits
+            # Reshape for loss: (batch*seq, vocab) and (batch*seq,)
+            logits = logits.view(-1, logits.size(-1))
+            labels = batch["labels"].view(-1)
             loss = loss_fn(logits, labels) / cfg.gradient_accumulation_steps
             loss_accumulated += loss.item()
 
@@ -72,26 +78,50 @@ def sft_train(cfg, model, optimizer, scheduler, tokenizer, ds_train, ds_eval):
                 scheduler.step()
                 optimizer.zero_grad()
                 # print(f"Loss {loss_accumulated}")
-                wandb.log({"train/loss": loss_accumulated, "train/lr": scheduler.get_last_lr()[0], "train_step": step + 1})
+                wandb.log({
+                    "train/loss": loss_accumulated,
+                    "train/lr": scheduler.get_last_lr()[0],
+                    "train_step": step + 1
+                })
                 loss_accumulated = 0.
+                pbar.update(1)
 
-            if step == 0 or (step + 1) % cfg.eval_interval == 0:
+            if step == 0 or (step + 1) == total_train_steps or (step + 1) % cfg.eval_steps == 0:
+            # if (step + 1) % cfg.eval_interval == 0:
+                # Subset of ds_eval
+                eval_subset_size = 2560  # samples, not batches
+                indices = random.sample(range(len(ds_eval)), eval_subset_size)
+                ds_eval_subset = torch.utils.data.Subset(ds_eval, indices)
+                dl_eval_subset = iterate_batches(ds_eval_subset, microbatch_size*2, shuffle=False)
+            
                 model.eval()
                 loss_eval = 0.
                 with torch.inference_mode():
-                    for input_ids, labels in dl_eval:
-                        logits = model(input_ids).logits
+                    num_eval_batches = 0
+                    for batch in dl_eval_subset:
+                        batch = {k: v.to(model.device) for k, v in batch.items()} 
+                        logits = model(batch["input_ids"]).logits
+                        # Reshape for loss: (batch*seq, vocab) and (batch*seq,)
+                        logits = logits.view(-1, logits.size(-1))
+                        labels = batch["labels"].view(-1)
                         loss = loss_fn(logits, labels)
                         loss_eval += loss.item()
-                wandb.log({"eval/loss": loss_eval/len(ds_eval), "eval_step": step + 1})
+                        num_eval_batches += 1
+                eval_result = {
+                    "eval/loss": loss_eval/num_eval_batches,
+                    "eval_step": step + 1
+                }
+                wandb.log(eval_result)
+                print(eval_result)
                 model.train()
             
             step += 1
 
+    pbar.close()
     # save the model weights
-    model.save_pretrained(save_directory=cfg.save_dir)
-    tokenizer.save_pretrained(save_directory=cfg.save_dir)
-    print(f"SFT model saved in {cfg.save_dir}")
+    model.save_pretrained(save_directory=save_dir)
+    tokenizer.save_pretrained(save_directory=save_dir)
+    print(f"SFT model saved in {save_dir}")
 
 
 if __name__ == "__main__":
@@ -100,7 +130,7 @@ if __name__ == "__main__":
     # Initialize wandb
     wandb.init(
         project = cfg.wandb_project,
-        # name = f"rlhf_sft_train_",
+        name = f"rlhf_sft_train",
         # name = "sft_n_train_filtered",
         entity=cfg.wandb_entity,
         config=vars(cfg)
@@ -123,13 +153,16 @@ if __name__ == "__main__":
 
     # load data
     ds_train = SFTDataset(tokenizer, cfg.file_train, cfg.seq_length)
+    # # test
+    # ds_train = torch.utils.data.Subset(ds_train, list(range(2000)))
+
     ds_eval = SFTDataset(tokenizer, cfg.file_eval, cfg.seq_length)
     print(f"Num of train samples: {len(ds_train)}")
 
     # create scheduler with cosine decay and linear warmup (3% of total steps)
     microbatch_size = cfg.train_batch_size // cfg.gradient_accumulation_steps
-    total_train_steps = cfg.train_epoch * len(ds_train) // cfg.gradient_accumulation_steps
-    warmup_steps = int(0.03 * total_train_steps)
+    total_train_steps = cfg.train_epochs * len(ds_train) // cfg.gradient_accumulation_steps
+    warmup_steps = int(cfg.warmup_ratio * total_train_steps)
     scheduler = get_cosine_schedule_with_warmup(
         optimizer,
         num_warmup_steps=warmup_steps,
@@ -138,5 +171,6 @@ if __name__ == "__main__":
     print(f"Total training steps: {total_train_steps}, warmup steps: {warmup_steps}")
 
     # train
-    sft_train(cfg, model, optimizer, scheduler, tokenizer, ds_train, ds_eval)
+    save_dir = Path(__file__).parent.parent / cfg.save_dir
+    sft_train(cfg, model, optimizer, scheduler, tokenizer, ds_train, ds_eval, total_train_steps, save_dir)
         
