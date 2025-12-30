@@ -6,7 +6,10 @@ from torch.utils.data import Dataset, DataLoader
 import random
 import gzip
 import json
-from transformers import PreTrainedTokenizerBase
+from transformers import PreTrainedTokenizerBase, PreTrainedModel
+import torch.nn.functional as F
+from contextlib import nullcontext
+
 
 def parse_mmlu_response(
     response: str,
@@ -111,3 +114,70 @@ def iterate_batches(
     return DataLoader(
         dataset, batch_size=batch_size, shuffle=shuffle
     )
+
+# 5.2 look_at_hh
+def is_multi_turn(conv: str) -> bool:
+    # neither human nor assistant should have more than one msgs
+    return conv.count("Human:") > 1 or conv.count("Assistant:") > 1
+
+def reformat(file, datapoint: dict) -> dict:
+    def split_conv_(conv: str) -> list[str]:
+        human, assistant = [s.strip() for s in conv.split("Assistant:")]
+        # human, assistant = conv.split("\n\nAssistant: ")
+        # turns out sometimes assistant msg can be empty
+        # assert (human and assistant), "The message should not be None."
+        return human.split("Human:")[-1].strip(), assistant
+
+    human_chosen, assistant_chosen = split_conv_(datapoint["chosen"])
+    human_rejected, assistant_rejected = split_conv_(datapoint["rejected"])
+    assert human_chosen == human_rejected, "Human instruction should be same for 'chosen' and 'rejected'."
+    return {"file": file.name, "instruction": human_chosen, "chosen": assistant_chosen, "rejected": assistant_rejected}
+
+# 5.3 dpo_loss
+def get_log_probs(
+    model: PreTrainedModel,
+    tokenizer: PreTrainedTokenizerBase,
+    prompt: str,
+    inference_mode: bool = False,
+) -> dict[str, torch.Tensor]:
+    # Move to same device as model
+    input_ids = tokenizer(prompt, return_tensors="pt")['input_ids']
+    eos = torch.tensor([[tokenizer.eos_token_id]])
+    input_ids = torch.cat([input_ids, eos], dim=-1)
+
+    device = model.device
+    input_ids = input_ids.to(device)
+    labels = input_ids[:, 1:]
+    input_ids = input_ids[:, :-1]
+
+    # nullcontext to enable gradient update
+    context = torch.inference_mode() if inference_mode else nullcontext()
+    
+    with context:
+        logits = model(input_ids).logits
+        log_probs = F.log_softmax(logits, dim=-1)
+
+        # Learn: advanced indexing; notice the `unsqueeze`
+        batch_idx = torch.arange(labels.shape[0]).unsqueeze(1)
+        seq_idx = torch.arange(labels.shape[1]).unsqueeze(0)
+        log_probs = log_probs[batch_idx, seq_idx, labels]
+        return log_probs
+
+def compute_per_instance_dpo_loss(
+    lm: torch.nn.Module,
+    lm_ref: torch.nn.Module,
+    tokenizer: PreTrainedTokenizerBase,
+    beta: float,
+    prompt: str,
+    response_chosen: str,
+    response_rejected: str,
+) -> torch.Tensor:
+    prompt_chosen = ALPACA_SFT_TEMPLATE.format(instruction=prompt, response=response_chosen)
+    prompt_rejected = ALPACA_SFT_TEMPLATE.format(instruction=prompt, response=response_rejected)
+    log_probs_lm_chosen = get_log_probs(lm, tokenizer, prompt_chosen)
+    log_probs_lmr_chosen = get_log_probs(lm_ref, tokenizer, prompt_chosen)
+    log_probs_lm_rejected = get_log_probs(lm, tokenizer, prompt_rejected)
+    log_probs_lmr_rejected = get_log_probs(lm_ref, tokenizer, prompt_rejected)
+    log_probs_diff_lm = torch.sum(log_probs_lm_chosen) - torch.sum(log_probs_lm_rejected)
+    log_probs_diff_lmr = torch.sum(log_probs_lmr_chosen) - torch.sum(log_probs_lmr_rejected)
+    return -F.logsigmoid(beta * (log_probs_diff_lm - log_probs_diff_lmr))
