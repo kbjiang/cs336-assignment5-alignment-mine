@@ -160,8 +160,7 @@ if __name__ == "__main__":
     print(f"Num of train samples: {len(ds_train)}")
 
     # create scheduler with cosine decay and linear warmup (3% of total steps)
-    microbatch_size = cfg.train_batch_size // cfg.gradient_accumulation_steps
-    total_train_steps = cfg.train_epochs * len(ds_train) // cfg.gradient_accumulation_steps
+    total_train_steps = cfg.train_epochs * len(ds_train) // cfg.train_batch_size
     warmup_steps = int(cfg.warmup_ratio * total_train_steps)
     scheduler = get_cosine_schedule_with_warmup(
         optimizer,
