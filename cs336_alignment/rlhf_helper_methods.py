@@ -1,9 +1,12 @@
+import os
+import torch
 from typing import Any
 import re
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 import random
 import gzip
 import json
+from transformers import PreTrainedTokenizerBase
 
 def parse_mmlu_response(
     response: str,
@@ -35,19 +38,35 @@ def load_jsonl_gz(filepath):
     return data
 
 alpaca_prompt_file = "/home/azureuser/localfiles/cs336-assignment5-alignment-mine/cs336_alignment/prompts/alpaca_sft.prompt"
-with open(alpaca_prompt_file) as f:
-    ALPACA_SFT_TEMPLATE = f.read()
+with open(alpaca_prompt_file, encoding="utf-8") as f:
+    ALPACA_SFT_TEMPLATE = f.read().strip() # `strip` to pass test
 
 class SFTDataset(Dataset):
-    def __init__(self, tokenizer, dataset_path, seq_length, shuffle: bool = False):
+    def __init__(
+        self,
+        tokenizer: PreTrainedTokenizerBase,
+        dataset_path: str | os.PathLike,
+        seq_length: int,
+        shuffle: bool=False,
+    ):
+        super().__init__()
         self.tokenizer = tokenizer
         self.seq_length = seq_length
         self.shuffle = shuffle
         
         # Load the data
-        data = load_jsonl_gz(dataset_path)
+        if str(dataset_path).endswith(".gz"):
+            data = load_jsonl_gz(dataset_path)
+        elif str(dataset_path).endswith(".jsonl"):
+            # with open(dataset_path, 'r', encoding='utf-8') as f:
+            with open(dataset_path) as f:
+                data = [json.loads(line.strip()) for line in f]
+        else:
+            raise ValueError("Wrong format of dataset file")
 
-        prompts = [ALPACA_SFT_TEMPLATE.format(instruction=s["prompt"], response=s["response"]) for s in data]
+
+        prompts = [ALPACA_SFT_TEMPLATE.format(
+            instruction=s["prompt"], response=s["response"]) for s in data]
         if self.shuffle:
             random.shuffle(prompts)
         
@@ -61,14 +80,16 @@ class SFTDataset(Dataset):
         # Concatenate token IDs with eos_token between each
         input_ids = []
         for ids in encoded["input_ids"]:
+            ids = [tokenizer.bos_token_id] + ids + [tokenizer.eos_token_id]
             input_ids.extend(ids)
-            input_ids.append(tokenizer.eos_token_id)
+            # input_ids.append(tokenizer.eos_token_id)
+        # input_ids = [tokenizer.bos_token_id] + input_ids
 
         self.items = []
         for i in range(0, len(input_ids), self.seq_length):
             item = {
-                "input_ids": input_ids[i:i+self.seq_length],
-                "labels": input_ids[i+1:i+1+self.seq_length]
+                "input_ids": torch.tensor(input_ids[i:i+self.seq_length]),
+                "labels": torch.tensor(input_ids[i+1:i+1+self.seq_length])
             }
 
             # At the end `labels`` is the shorter one
@@ -80,6 +101,13 @@ class SFTDataset(Dataset):
         return len(self.items)
 
     def __getitem__(self, i):
-        if i >= self.__len__():
-            raise ValueError("Index out of bound.")
         return self.items[i]
+
+def iterate_batches(
+    dataset: Dataset,
+    batch_size: int,
+    shuffle: bool,
+):
+    return DataLoader(
+        dataset, batch_size=batch_size, shuffle=shuffle
+    )
