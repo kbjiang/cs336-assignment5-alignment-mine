@@ -356,7 +356,9 @@ def get_packed_sft_dataset(
         "input_ids" contains the token IDs for the language modeling inputs, and "labels" contains
         the token IDs for the language modeling labels.
     """
-    raise NotImplementedError
+    # raise NotImplementedError
+    from cs336_alignment.rlhf_helper_methods import SFTDataset
+    return SFTDataset(tokenizer, dataset_path, seq_length, shuffle)
 
 
 def run_iterate_batches(
@@ -379,7 +381,9 @@ def run_iterate_batches(
     Returns:
         Iterable over batches, where each batch has size `batch_size`.
     """
-    raise NotImplementedError
+    # raise NotImplementedError
+    from cs336_alignment.rlhf_helper_methods import iterate_batches
+    return iterate_batches(dataset, batch_size, shuffle)
 
 
 def run_parse_mmlu_response(
