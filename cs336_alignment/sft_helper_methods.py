@@ -8,9 +8,9 @@ from nltk.tokenize import word_tokenize
 
 
 def tokenize_prompt_and_output(
-        prompt_strs: list[str],
-        output_strs: list[str],
-        tokenizer: PreTrainedTokenizer,
+    prompt_strs: list[str],
+    output_strs: list[str],
+    tokenizer: PreTrainedTokenizer,
 ) -> dict[str, torch.Tensor]:
     max_seqlen = 0
     tokens_list = []

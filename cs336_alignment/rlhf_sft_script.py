@@ -14,10 +14,6 @@ from rlhf_train_config import SFTTrainingConfig
 from torch.nn import CrossEntropyLoss
 import random
 
-def get_prompts(prompt_template, problems):
-    prompts = [prompt_template.replace("{question}", p) for p in problems]
-    return prompts
-
 def get_optimizer(cfg, model):
     # Set up the AdamW optimizer.
     # First, we need to group the parameters that should

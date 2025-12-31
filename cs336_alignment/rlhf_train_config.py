@@ -33,49 +33,26 @@ class SFTTrainingConfig:
     num_train_examples: int | None = None
 
 @dataclass
-class GRPOTrainingConfig:
-    n_grpo_steps: int = 50
-    lr: float = 4e-5
-    lr_fin: float = 3e-5
-    epochs_per_rollout_batch: int = 2  # 1 means on-policy
-    rollout_batch_size: int = 256
-    train_batch_size: int = 512  # on-policy
-    gradient_accumulation_steps: int = 128  # microbatch size is 2, will fit on H100
-    eval_interval: int = 128
-    eval_sample_frac: float = 0.5
-    loss_type: Literal[
-        "no_baseline", "reinforce_with_baseline", "grpo_clip",
-    # ] = "reinforce_with_baseline"
-    # ] = "no_baseline"
-    ] = "grpo_clip"
-    loss_normalization: Literal[
-        "masked_mean", "masked_normalize"
-    ] = "masked_mean"
-    # ] = "masked_normalize"
-    use_std_normalization: bool = True
-    group_size: int = 8
-    advantage_eps: float = 1e-6
-    clip_range: float = 0.1
-    weight_decay: float = 0.0
-    adam_beta1: float = 0.9
-    adam_beta2: float = 0.95
-    adam_eps: float = 1e-8
-    save_dir: str = "grpo_model"
-    wandb_project: str | None = "cs336_assgn5_grpo_ablate"
-    wandb_entity: str | None = "kebeijiang"
+class DPOTrainingConfig:
+    model_id = "meta-llama/Llama-3.1-8B"
     seed: int = 0
     dtype: str = "bfloat16"
-    eval_batch_size: int = 8
-    train_steps: int = 800
+    train_batch_size: int = 64
+    gradient_accumulation_steps: int = 64
+    train_epochs: int = 1
     compile: bool = True
     # eval_iterations: int = 100
+    eval_steps: int = 1280
     max_grad_norm: float | None = 1.0
     device_train: str = "cuda:0"
-    device_eval: str = "cuda:1"
-    warmup_ratio: float = 0.01
+    device_ref: str = "cuda:1"
+    dpo_loss_beta: float = 0.1
+    lr: float = 1e-6
+    lr_fin: float = 1e-5
+    warmup_ratio: float = 0.03
+    wandb_project: str | None = "cs336_assgn5_rlhf_dpo"
+    wandb_entity: str | None = "kebeijiang"
     log_interval: int = 20
     save_checkpoints: bool = False
-    file_prompt_r1_zero = "/home/azureuser/localfiles/cs336-assignment5-alignment-mine/cs336_alignment/prompts/r1_zero.prompt"
-    file_train = "/home/azureuser/localfiles/cs336-assignment5-alignment-mine/data/train.jsonl"
-    file_eval = "/home/azureuser/localfiles/cs336-assignment5-alignment-mine/data/validation.jsonl"
-    model_id = "Qwen/Qwen2.5-Math-1.5B"
+    save_dir: str = "rlhf_dpo_model"
+    num_train_examples: int | None = None

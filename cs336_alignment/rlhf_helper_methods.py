@@ -168,16 +168,79 @@ def compute_per_instance_dpo_loss(
     lm_ref: torch.nn.Module,
     tokenizer: PreTrainedTokenizerBase,
     beta: float,
-    prompt: str,
+    prompt: str,  # should've been called 'instruction'.
     response_chosen: str,
     response_rejected: str,
 ) -> torch.Tensor:
     prompt_chosen = ALPACA_SFT_TEMPLATE.format(instruction=prompt, response=response_chosen)
     prompt_rejected = ALPACA_SFT_TEMPLATE.format(instruction=prompt, response=response_rejected)
+
+    # Policy model - need gradients
     log_probs_lm_chosen = get_log_probs(lm, tokenizer, prompt_chosen)
-    log_probs_lmr_chosen = get_log_probs(lm_ref, tokenizer, prompt_chosen)
     log_probs_lm_rejected = get_log_probs(lm, tokenizer, prompt_rejected)
-    log_probs_lmr_rejected = get_log_probs(lm_ref, tokenizer, prompt_rejected)
+
+    # Reference model - no gradients needed
+    log_probs_lmr_chosen = get_log_probs(lm_ref, tokenizer, prompt_chosen, inference_mode=True)
+    log_probs_lmr_rejected = get_log_probs(lm_ref, tokenizer, prompt_rejected, inference_mode=True)
+
     log_probs_diff_lm = torch.sum(log_probs_lm_chosen) - torch.sum(log_probs_lm_rejected)
     log_probs_diff_lmr = torch.sum(log_probs_lmr_chosen) - torch.sum(log_probs_lmr_rejected)
-    return -F.logsigmoid(beta * (log_probs_diff_lm - log_probs_diff_lmr))
+    return -F.logsigmoid(beta * (log_probs_diff_lm - log_probs_diff_lmr.to(lm.device)))
+
+# for training in batch (not used)
+def tokenize_prompts(
+        prompt_strs: list[str],
+        tokenizer: PreTrainedTokenizerBase,
+) -> dict[str, torch.Tensor]:
+    prompt_strs = [p + tokenizer.eos_token for p in prompt_strs]
+
+    # to do `padding=True`, need to set `tokenizer.pad_token`
+    result = tokenizer(prompt_strs, padding=True, return_tensors="pt")
+    return result
+
+def get_log_probs_batch(
+    model: PreTrainedModel,
+    tokens: dict[str, torch.Tensor],
+    inference_mode: bool = False,
+) -> dict[str, torch.Tensor]:
+    # Move to same device as model
+    device = model.device
+    input_ids = tokens["input_ids"].to(device)
+    masks = tokens["attention_mask"].to(device)
+
+    labels = input_ids[:, 1:]
+    input_ids = input_ids[:, :-1]
+    masks = masks[:, 1:]
+
+    # nullcontext to enable gradient update
+    context = torch.inference_mode() if inference_mode else nullcontext()
+    
+    with context:
+        logits = model(input_ids).logits
+        log_probs = F.log_softmax(logits, dim=-1)
+
+        # Learn: advanced indexing; notice the `unsqueeze`
+        batch_idx = torch.arange(labels.shape[0]).unsqueeze(1)
+        seq_idx = torch.arange(labels.shape[1]).unsqueeze(0)
+        log_probs = log_probs[batch_idx, seq_idx, labels]
+        
+        # mask out padded tokens
+        return log_probs * masks
+
+def compute_dpo_loss_batch(
+    lm: torch.nn.Module,
+    lm_ref: torch.nn.Module,
+    tokenizer: PreTrainedTokenizerBase,
+    beta: float,
+    batch_chosen: list[str],
+    batch_rejected: list[str],
+) -> torch.Tensor:
+    tokens_chosen = tokenize_prompts(batch_chosen, tokenizer)
+    tokens_rejected = tokenize_prompts(batch_rejected, tokenizer)
+    log_probs_lm_chosen = get_log_probs_batch(lm, tokens_chosen)
+    log_probs_lmr_chosen = get_log_probs_batch(lm_ref, tokens_chosen)
+    log_probs_lm_rejected = get_log_probs_batch(lm, tokens_rejected)
+    log_probs_lmr_rejected = get_log_probs_batch(lm_ref, tokens_rejected)
+    log_probs_diff_lm = torch.sum(log_probs_lm_chosen, dim=-1) - torch.sum(log_probs_lm_rejected, dim=-1)
+    log_probs_diff_lmr = torch.sum(log_probs_lmr_chosen, dim=-1) - torch.sum(log_probs_lmr_rejected, dim=-1)
+    return -F.logsigmoid(beta * (log_probs_diff_lm - log_probs_diff_lmr)).mean()
