@@ -34,7 +34,8 @@ class SFTTrainingConfig:
 
 @dataclass
 class DPOTrainingConfig:
-    model_id = "meta-llama/Llama-3.1-8B"
+    # model_id = "meta-llama/Llama-3.1-8B"
+    model_id = "/home/azureuser/mount/rlhf_sft_model"
     seed: int = 0
     dtype: str = "bfloat16"
     train_batch_size: int = 64
@@ -54,5 +55,5 @@ class DPOTrainingConfig:
     wandb_entity: str | None = "kebeijiang"
     log_interval: int = 20
     save_checkpoints: bool = False
-    save_dir: str = "rlhf_dpo_model"
+    save_dir: str = "/home/azureuser/mount/"
     num_train_examples: int | None = None

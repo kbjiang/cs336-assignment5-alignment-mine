@@ -110,7 +110,7 @@ if __name__ == "__main__":
     # Initialize wandb
     wandb.init(
         project = cfg.wandb_project,
-        name = f"rlhf_dpo_train",
+        name = f"rlhf_dpo_lr{cfg.lr}_beta{cfg.dpo_loss_beta}",
         entity=cfg.wandb_entity,
         config=vars(cfg)
     )
@@ -157,9 +157,11 @@ if __name__ == "__main__":
             d = reformat(file, d)
             ds.append(d)
 
-    ds_train, ds_eval = train_test_split(ds, test_size=200, random_state=42, shuffle=True)
-
+    ds_train, ds_eval = train_test_split(ds, test_size=1000, random_state=42, shuffle=True)
     print(f"Num of train samples: {len(ds_train)}")
+    print(f"Num of eval samples: {len(ds_eval)}")
+    print("Random sample of train dataset:")
+    print(json.dumps(ds_train[0], indent=2))
 
     # create scheduler with cosine decay and linear warmup (3% of total steps)
     total_train_steps = cfg.train_epochs * len(ds_train) // cfg.train_batch_size
@@ -174,6 +176,6 @@ if __name__ == "__main__":
     print(f"Total training steps: {total_train_steps}")
 
     # train
-    save_dir = Path(__file__).parent.parent / cfg.save_dir
+    save_dir = Path(cfg.save_dir) / f"rlhf_dpo_lr{cfg.lr}_beta{cfg.dpo_loss_beta}"
     dpo_train(cfg, model, model_ref, optimizer, scheduler, tokenizer, ds_train, ds_eval, total_train_steps, save_dir)
         
