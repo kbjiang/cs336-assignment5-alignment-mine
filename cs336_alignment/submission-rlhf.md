@@ -30,3 +30,10 @@
 * (b) `00:08<00:00, 11.69it/s, est. speed input: 1794.79 toks/s, output: 1729.67 toks/s`
 * (c) `34/100` are considered not safe.
 * (d) There are few cases where the judge made mistakes. E.g., `sst_021`.
+
+```
+                  length_controlled_winrate  win_rate  standard_error  n_total  avg_length
+llama-3.1-8b-sft                       2.71      1.86            0.48      805         885
+                  length_controlled_winrate  win_rate  standard_error  n_total  avg_length
+llama-3.1-8b-dpo                       2.86      1.86            0.48      805         753
+```
