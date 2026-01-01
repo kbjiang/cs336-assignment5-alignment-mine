@@ -9,9 +9,21 @@ if __name__=="__main__":
     parser.add_argument(
         "--alpaca_eval_file", type=str,
         default="/home/azureuser/localfiles/cs336-assignment5-alignment-mine/data/alpaca_eval/alpaca_eval.jsonl")
+    parser.add_argument(
+        "--model", type=str,
+        default="meta-llama/Llama-3.1-8B",
+        help="Model name for vLLM")
+    parser.add_argument(
+        "--output_name", type=str,
+        default="alpaca_eval_baseline",
+        help="Base name for output file (without extension)")
+    parser.add_argument(
+        "--generator", type=str,
+        default="llama-3.1-8b-base",
+        help="Generator name to save in the output")
     args = parser.parse_args()
 
-    llm = LLM(model="meta-llama/Llama-3.1-8B")
+    llm = LLM(model=args.model)
 
     # Create a sampling params object, stopping generation on newline.
     sampling_params = SamplingParams(
@@ -36,9 +48,9 @@ if __name__=="__main__":
 
     # serialization
     df["output"] = outputs
-    df["generator"] = "llama-3.1-8b-base"
+    df["generator"] = args.generator
 
-    output_file = Path(__file__).parent / "alpaca_eval_baseline.json"
+    output_file = Path(__file__).parent / f"{args.output_name}.json"
     with open(output_file, "w") as f:
         json.dump(df.to_dict("records"), f)
     print(f"Eval output saved to: {output_file}.")
